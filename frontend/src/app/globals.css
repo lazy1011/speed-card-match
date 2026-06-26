@@ -1,0 +1,141 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* UNO-style card animations */
+@keyframes card-deal {
+  0% {
+    transform: translateY(-160%) translateX(40%) rotate(-12deg) scale(0.6);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0) translateX(0) rotate(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes card-flip {
+  0% {
+    transform: rotateY(180deg);
+  }
+  100% {
+    transform: rotateY(0deg);
+  }
+}
+
+@keyframes stack-glow {
+  0% {
+    box-shadow: 0 0 0 0 rgba(250, 204, 21, 0);
+  }
+  35% {
+    box-shadow: 0 0 40px 12px rgba(250, 204, 21, 0.9);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(250, 204, 21, 0);
+  }
+}
+
+.animate-card-deal {
+  animation: card-deal 0.45s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+}
+
+.animate-card-flip {
+  transform-style: preserve-3d;
+  backface-visibility: hidden;
+  animation: card-flip 0.45s ease-out;
+}
+
+.animate-stack-glow {
+  animation: stack-glow 0.7s ease-out;
+}
+
+@keyframes pulse-fast {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.animate-pulse-fast {
+  animation: pulse-fast 0.8s ease-in-out infinite;
+}
+
+/* Countdown bar shrinking from full width to 0 */
+@keyframes countdown-bar {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+
+.animate-countdown-bar {
+  animation: countdown-bar linear forwards;
+}
+
+/* Shuffle: card backs slide apart and snap together at game start */
+@keyframes shuffle-left {
+  0% {
+    transform: translateX(0) rotate(0);
+  }
+  35% {
+    transform: translateX(-70px) rotate(-14deg);
+  }
+  70% {
+    transform: translateX(8px) rotate(4deg);
+  }
+  100% {
+    transform: translateX(0) rotate(0);
+  }
+}
+
+@keyframes shuffle-right {
+  0% {
+    transform: translateX(0) rotate(0);
+  }
+  35% {
+    transform: translateX(70px) rotate(14deg);
+  }
+  70% {
+    transform: translateX(-8px) rotate(-4deg);
+  }
+  100% {
+    transform: translateX(0) rotate(0);
+  }
+}
+
+.animate-shuffle-left {
+  animation: shuffle-left 0.65s ease-in-out infinite;
+}
+
+.animate-shuffle-right {
+  animation: shuffle-right 0.65s ease-in-out infinite;
+}
+
