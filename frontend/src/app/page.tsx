@@ -78,7 +78,7 @@ export default function Home() {
           <p className="text-emerald-400/70 mt-2 font-semibold text-lg">Choose your game</p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 w-full max-w-2xl">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 w-full max-w-4xl">
           {/* Speed Match card */}
           <button
             onClick={() => setSelectedGame('speed-match')}
@@ -116,6 +116,26 @@ export default function Home() {
               <span>2–6 players</span>
               <span className="text-slate-600">·</span>
               <span>Strategic</span>
+            </div>
+          </button>
+
+          {/* Guess Who card */}
+          <button
+            onClick={() => router.push('/guess-who')}
+            className="group relative overflow-hidden rounded-3xl p-8 text-left transition-all active:scale-95 border-2 border-violet-500/30 hover:border-violet-400/60"
+            style={{ background: 'linear-gradient(145deg, #1a0f2e, #100a1f)' }}
+          >
+            <div className="absolute top-0 right-0 w-32 h-32 rounded-full opacity-20 group-hover:opacity-40 transition-opacity"
+              style={{ background: 'radial-gradient(circle, #8b5cf6, transparent)', transform: 'translate(30%, -30%)' }} />
+            <div className="text-5xl mb-4">🕵️</div>
+            <h2 className="text-2xl font-black text-white mb-2">Guess Who?</h2>
+            <p className="text-slate-400 text-sm font-semibold leading-relaxed">
+              Pick a secret character. Ask yes/no questions to deduce your opponent's.
+            </p>
+            <div className="mt-5 flex items-center gap-2 text-violet-400 text-sm font-bold">
+              <span>2 players</span>
+              <span className="text-slate-600">·</span>
+              <span>Deduction</span>
             </div>
           </button>
         </div>

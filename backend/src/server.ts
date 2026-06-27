@@ -5,6 +5,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { RoomManager } from './rooms/RoomManager';
 import { setupGameEvents } from './events/gameEvents';
+import { setupGuessWhoEvents } from './events/guessWhoEvents';
 
 dotenv.config();
 
@@ -30,6 +31,7 @@ const roomManager = new RoomManager();
 
 // Setup Socket.io events
 setupGameEvents(io, roomManager);
+setupGuessWhoEvents(io);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
