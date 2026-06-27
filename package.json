@@ -1,0 +1,8 @@
+{
+  "name": "speed-card-match",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "cd backend && npm install && npm run build",
+    "start": "node backend/dist/server.js"
+  }
+}
