@@ -1,14 +1,13 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useGuessWhoSocket } from '@/hooks/useGuessWhoSocket';
 import CharacterCard from '@/components/guess-who/CharacterCard';
-import QuestionPicker from '@/components/guess-who/QuestionPicker';
-import { GW_CHARACTERS as CHARS } from '@/data/guessWhoData';
+import { GW_CHARACTERS as CHARS, GW_QUESTIONS, GW_QUESTION_CATEGORIES } from '@/data/guessWhoData';
 import WakeUpLoader from '@/components/WakeUpLoader';
 
-// ── Turn timer ────────────────────────────────────────────────────────────────
+// ── Turn timer ─────────────────────────────────────────────────────────────────
 
 function TurnTimer({ endsAt, totalMs = 30_000 }: { endsAt: number; totalMs?: number }) {
   const [secs, setSecs] = useState(Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)));
@@ -31,13 +30,13 @@ function TurnTimer({ endsAt, totalMs = 30_000 }: { endsAt: number; totalMs?: num
   );
 }
 
-// ── Attribute badge ───────────────────────────────────────────────────────────
+// ── Attribute badge ────────────────────────────────────────────────────────────
 
 function AttrBadge({ label, value }: { label: string; value: string | boolean }) {
   if (value === false) return null;
   return (
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-slate-700/60 text-slate-300 border border-slate-600/30">
-      {value === true ? `${label}` : `${label}: ${value}`}
+      {value === true ? label : `${label}: ${value}`}
     </span>
   );
 }
@@ -45,7 +44,7 @@ function AttrBadge({ label, value }: { label: string; value: string | boolean })
 const inputClass =
   'w-full px-4 py-3 rounded-2xl border-2 border-slate-700 bg-slate-900 text-white placeholder-slate-500 focus:outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/30 transition font-semibold';
 
-// ── Main page ─────────────────────────────────────────────────────────────────
+// ── Main page ──────────────────────────────────────────────────────────────────
 
 export default function GuessWhoPage() {
   const router = useRouter();
@@ -56,22 +55,16 @@ export default function GuessWhoPage() {
   const [showJoinInput, setShowJoinInput] = useState(false);
   const [showWakeUp, setShowWakeUp] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
-  const [showQuestionPicker, setShowQuestionPicker] = useState(false);
   const [guessMode, setGuessMode] = useState(false);
   const [pendingGuessId, setPendingGuessId] = useState<number | null>(null);
   const [showLog, setShowLog] = useState(false);
-  const askedIds = useRef<Set<string>>(new Set());
+  const [activeCategory, setActiveCategory] = useState(GW_QUESTION_CATEGORIES[0]);
 
   useEffect(() => {
     if (gw.connected) { setShowWakeUp(false); return; }
     const t = setTimeout(() => setShowWakeUp(true), 2500);
     return () => clearTimeout(t);
   }, [gw.connected]);
-
-  // Track asked questions locally
-  useEffect(() => {
-    if (gw.lastQuestionResult) askedIds.current.add(gw.lastQuestionResult.questionText);
-  }, [gw.lastQuestionResult]);
 
   const handleCopyCode = useCallback(() => {
     if (!gw.roomCode) return;
@@ -100,7 +93,6 @@ export default function GuessWhoPage() {
   }, []);
 
   const isMyTurn = !!gw.myId && gw.myId === gw.currentTurnPlayerId;
-  const opponent = gw.players.find(p => p.id !== gw.myId);
 
   const handleCardClick = (charId: number) => {
     if (guessMode) {
@@ -126,6 +118,7 @@ export default function GuessWhoPage() {
   const mySecretChar = CHARS.find(c => c.id === gw.mySecretCharacterId);
 
   // ── LOBBY ──────────────────────────────────────────────────────────────────
+
   if (gw.phase === 'LOBBY') {
     if (!gw.roomCode) {
       return (
@@ -176,7 +169,7 @@ export default function GuessWhoPage() {
                         <div className="w-full border-t border-slate-700" />
                       </div>
                       <div className="relative flex justify-center text-sm">
-                        <span className="px-3 text-slate-500 font-semibold bg-transparent" style={{ background: 'rgba(13,10,36,0.95)' }}>or</span>
+                        <span className="px-3 text-slate-500 font-semibold" style={{ background: 'rgba(13,10,36,0.95)' }}>or</span>
                       </div>
                     </div>
                     <button onClick={() => setShowJoinInput(true)}
@@ -251,17 +244,13 @@ export default function GuessWhoPage() {
             </button>
           </div>
 
-          <div className="flex items-center gap-2 justify-center mb-6">
+          <div className="flex items-center gap-2 justify-center mb-4">
             <div className="w-4 h-4 rounded-full border-2 border-violet-400/30 border-t-violet-400 animate-spin" />
             <span className="text-slate-400 text-sm font-semibold">Waiting for second player…</span>
           </div>
 
-          {gw.message && (
-            <p className="text-violet-300 text-sm font-semibold">{gw.message}</p>
-          )}
-
           <button onClick={gw.leaveRoom}
-            className="mt-4 w-full py-2.5 text-slate-500 hover:text-slate-300 text-sm font-semibold">
+            className="w-full py-2.5 text-slate-500 hover:text-slate-300 text-sm font-semibold">
             ← Leave Room
           </button>
         </div>
@@ -270,14 +259,14 @@ export default function GuessWhoPage() {
   }
 
   // ── SELECTING ──────────────────────────────────────────────────────────────
+
   if (gw.phase === 'SELECTING') {
-    const mySelected = gw.mySecretCharacterId;
     return (
       <div className="min-h-screen p-4 pb-8" style={{ background: 'linear-gradient(135deg, #0d0a24 0%, #0a1a2e 100%)' }}>
         <div className="max-w-2xl mx-auto">
           <div className="text-center mb-4">
             <h1 className="text-2xl font-black text-white">🕵️ Guess Who?</h1>
-            {!mySelected ? (
+            {!gw.mySecretCharacterId ? (
               <p className="text-violet-400 font-semibold mt-1">Tap a character to secretly select them</p>
             ) : (
               <p className="text-emerald-400 font-semibold mt-1">
@@ -298,8 +287,8 @@ export default function GuessWhoPage() {
               <CharacterCard
                 key={char.id}
                 character={char}
-                state={mySelected === char.id ? 'secret' : 'active'}
-                onClick={!mySelected ? () => handleCardClick(char.id) : undefined}
+                state={gw.mySecretCharacterId === char.id ? 'secret' : 'active'}
+                onClick={!gw.mySecretCharacterId ? () => handleCardClick(char.id) : undefined}
               />
             ))}
           </div>
@@ -309,18 +298,13 @@ export default function GuessWhoPage() {
   }
 
   // ── PLAYING ────────────────────────────────────────────────────────────────
+
   if (gw.phase === 'PLAYING') {
     const askedQIds = new Set(gw.questionLog.map(e => e.questionId).filter(Boolean));
+    const categoryQuestions = GW_QUESTIONS.filter(q => q.category === activeCategory);
 
     return (
-      <div className="min-h-screen p-3 pb-6" style={{ background: 'linear-gradient(135deg, #0d0a24 0%, #0a1a2e 100%)' }}>
-        {showQuestionPicker && (
-          <QuestionPicker
-            onAsk={qid => { gw.askQuestion(qid); setShowQuestionPicker(false); }}
-            onClose={() => setShowQuestionPicker(false)}
-            askedQuestionIds={askedQIds}
-          />
-        )}
+      <div className="min-h-screen pb-8" style={{ background: 'linear-gradient(135deg, #0d0a24 0%, #0a1a2e 100%)' }}>
 
         {/* Confirm guess modal */}
         {pendingGuessId && (
@@ -329,10 +313,10 @@ export default function GuessWhoPage() {
               style={{ background: '#0d0a24' }}>
               <div className="text-4xl mb-3">🎯</div>
               <p className="text-white font-black text-lg mb-1">Your guess:</p>
-              <p className="text-violet-300 font-black text-2xl mb-4">
+              <p className="text-violet-300 font-black text-2xl mb-2">
                 {CHARS.find(c => c.id === pendingGuessId)?.name}
               </p>
-              <p className="text-slate-400 text-sm font-semibold mb-5">Wrong guess = instant loss!</p>
+              <p className="text-slate-500 text-xs font-semibold mb-5">Wrong guess = instant loss!</p>
               <div className="flex gap-3">
                 <button onClick={() => { setPendingGuessId(null); setGuessMode(false); }}
                   className="flex-1 py-3 rounded-2xl font-bold text-slate-400 bg-slate-800 hover:bg-slate-700 transition-all">
@@ -347,7 +331,8 @@ export default function GuessWhoPage() {
           </div>
         )}
 
-        <div className="max-w-2xl mx-auto space-y-3">
+        <div className="max-w-2xl mx-auto px-3 pt-3 space-y-2">
+
           {/* Header */}
           <div className="flex items-center justify-between">
             <div>
@@ -357,7 +342,7 @@ export default function GuessWhoPage() {
             <div className="flex items-center gap-2">
               <button onClick={() => setShowLog(!showLog)}
                 className="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all border border-slate-700/40">
-                📋 Log ({gw.questionLog.length})
+                📋 {gw.questionLog.length}
               </button>
               <button onClick={gw.leaveRoom}
                 className="px-3 py-1.5 rounded-xl text-xs font-black bg-rose-700/60 hover:bg-rose-600/70 text-white transition-all">
@@ -366,138 +351,182 @@ export default function GuessWhoPage() {
             </div>
           </div>
 
-          {/* Status row */}
+          {/* My character + Turn status */}
           <div className="grid grid-cols-2 gap-2">
-            {/* My character */}
-            <div className="rounded-2xl p-3 border border-emerald-700/30 bg-emerald-900/10">
-              <p className="text-emerald-400 text-xs font-bold mb-1">Your secret character</p>
-              {mySecretChar ? (
-                <div className="flex items-center gap-2">
-                  <CharacterCard character={mySecretChar} state="secret" size="sm" />
-                  <div>
-                    <p className="text-white font-black text-sm">{mySecretChar.name}</p>
-                    <p className="text-slate-500 text-xs">{mySecretChar.gender} · {mySecretChar.hairColor}</p>
-                  </div>
-                </div>
-              ) : <p className="text-slate-500 text-xs">Not selected</p>}
+            <div className="rounded-2xl p-2.5 border border-emerald-700/30 bg-emerald-900/10 flex items-center gap-2 min-w-0">
+              {mySecretChar && <CharacterCard character={mySecretChar} state="secret" size="sm" />}
+              <div className="min-w-0">
+                <p className="text-emerald-400 text-[10px] font-bold">Your secret</p>
+                <p className="text-white font-black text-sm truncate">{mySecretChar?.name}</p>
+                <p className="text-slate-500 text-[10px]">{mySecretChar?.gender} · {mySecretChar?.hairColor}</p>
+              </div>
             </div>
-
-            {/* Turn info */}
-            <div className={`rounded-2xl p-3 border ${isMyTurn ? 'border-violet-500/50 bg-violet-900/20' : 'border-slate-700/30 bg-slate-800/30'}`}>
-              <p className={`text-xs font-bold mb-1 ${isMyTurn ? 'text-violet-400' : 'text-slate-400'}`}>
-                {isMyTurn ? 'Your turn!' : `${gw.currentTurnPlayerName}'s turn`}
+            <div className={`rounded-2xl p-2.5 border flex flex-col justify-center ${
+              isMyTurn ? 'border-violet-500/50 bg-violet-900/20' : 'border-slate-700/30 bg-slate-800/30'
+            }`}>
+              <p className={`text-xs font-black ${isMyTurn ? 'text-violet-300' : 'text-slate-400'}`}>
+                {isMyTurn ? '⚡ Your turn — ask or guess!' : `⏳ ${gw.currentTurnPlayerName}'s turn`}
               </p>
               {gw.turnEndsAt && <TurnTimer endsAt={gw.turnEndsAt} />}
-              {isMyTurn && !guessMode && (
-                <p className="text-violet-300 text-xs font-semibold mt-1">Ask a question or guess the character</p>
-              )}
             </div>
           </div>
 
-          {/* Last question result banner */}
+          {/* Last answer banner — shown to BOTH players */}
           {gw.lastQuestionResult && (
-            <div className={`rounded-2xl p-3 border text-center ${
+            <div className={`rounded-2xl border flex items-center gap-3 px-4 py-3 ${
               gw.lastQuestionResult.answer
-                ? 'bg-emerald-900/20 border-emerald-700/40'
-                : 'bg-rose-900/20 border-rose-700/40'
+                ? 'border-emerald-600/50 bg-emerald-900/20'
+                : 'border-rose-600/50 bg-rose-900/20'
             }`}>
-              <p className="text-slate-300 text-sm font-semibold">
-                <span className="font-black text-white">{gw.lastQuestionResult.askerName}</span> asked:
-                "{gw.lastQuestionResult.questionText}"
-              </p>
-              <p className={`text-lg font-black mt-0.5 ${gw.lastQuestionResult.answer ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {gw.lastQuestionResult.answer ? '✅ Yes' : '❌ No'}
-              </p>
+              <span className="text-3xl flex-shrink-0">
+                {gw.lastQuestionResult.answer ? '✅' : '❌'}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-slate-400 text-[10px] font-bold uppercase tracking-wide">
+                  {gw.lastQuestionResult.askerName} asked
+                </p>
+                <p className="text-white font-semibold text-sm leading-snug truncate">
+                  {gw.lastQuestionResult.questionText}
+                </p>
+                <p className={`text-sm font-black ${gw.lastQuestionResult.answer ? 'text-emerald-300' : 'text-rose-300'}`}>
+                  {gw.lastQuestionResult.answer ? 'YES' : 'NO'}
+                  <span className="text-slate-500 font-normal text-xs ml-2">
+                    — tap the board to eliminate characters
+                  </span>
+                </p>
+              </div>
             </div>
           )}
 
           {/* Question log (collapsible) */}
           {showLog && gw.questionLog.length > 0 && (
             <div className="rounded-2xl border border-slate-700/40 bg-slate-900/60 overflow-hidden">
-              <div className="px-4 py-2 border-b border-slate-700/30">
-                <p className="text-slate-400 text-xs font-bold">Question History</p>
-              </div>
-              <div className="max-h-40 overflow-y-auto">
+              <div className="max-h-36 overflow-y-auto divide-y divide-slate-800/60">
                 {gw.questionLog.map((entry, i) => (
-                  <div key={i} className="px-4 py-2 border-b border-slate-800/60 flex items-center justify-between gap-3">
-                    <span className="text-slate-400 text-xs flex-1">{entry.questionText}</span>
+                  <div key={i} className="px-3 py-2 flex items-center gap-2">
                     <span className={`text-xs font-black flex-shrink-0 ${entry.answer ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {entry.answer ? '✅ Yes' : '❌ No'}
+                      {entry.answer ? '✅' : '❌'}
                     </span>
+                    <span className="text-slate-400 text-xs flex-1 leading-tight">{entry.questionText}</span>
+                    <span className="text-slate-600 text-[10px] flex-shrink-0">{entry.askerName}</span>
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Character board */}
+          {/* Character board — ALWAYS tappable (both players can eliminate anytime) */}
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-slate-400 text-xs font-bold">
-                {guessMode ? '🎯 Tap a character to guess' : 'Tap characters to eliminate them'}
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-slate-500 text-[11px] font-bold">
+                {guessMode ? '🎯 Tap a character to select your guess' : 'Tap any card to eliminate ✕ — tap again to restore'}
               </p>
-              <p className="text-slate-600 text-xs">
-                {CHARS.length - gw.eliminatedIds.size} remaining
-              </p>
+              <span className="text-slate-500 text-[11px]">
+                {CHARS.length - gw.eliminatedIds.size}/{CHARS.length}
+              </span>
             </div>
             <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
               {CHARS.map(char => {
-                const isEliminated = gw.eliminatedIds.has(char.id);
+                const isElim = gw.eliminatedIds.has(char.id);
                 const isPending = pendingGuessId === char.id;
                 let state: 'active' | 'eliminated' | 'selected' | 'secret' | 'guess-target' = 'active';
-                if (isEliminated && !guessMode) state = 'eliminated';
+                if (isElim && !guessMode) state = 'eliminated';
                 else if (char.id === gw.mySecretCharacterId) state = 'secret';
                 else if (guessMode && isPending) state = 'guess-target';
                 return (
-                  <CharacterCard
-                    key={char.id}
-                    character={char}
-                    state={state}
-                    size="sm"
-                    onClick={() => handleCardClick(char.id)}
-                  />
+                  <CharacterCard key={char.id} character={char} state={state} size="sm"
+                    onClick={() => handleCardClick(char.id)} />
                 );
               })}
             </div>
           </div>
 
-          {/* Action buttons */}
-          {isMyTurn && (
-            <div className="space-y-2 sticky bottom-3">
-              {guessMode ? (
-                <div className="flex gap-2">
-                  <button onClick={() => { setGuessMode(false); setPendingGuessId(null); }}
-                    className="flex-1 py-4 rounded-2xl font-bold text-slate-300 bg-slate-700/80 hover:bg-slate-600 border border-slate-600/40 active:scale-95 transition-all">
-                    Cancel
-                  </button>
-                  {pendingGuessId && (
-                    <button onClick={handleConfirmGuess}
-                      className="flex-1 py-4 rounded-2xl font-black text-white text-lg bg-violet-600 hover:bg-violet-500 active:scale-95 transition-all shadow-lg shadow-violet-900/40">
-                      🎯 Guess {CHARS.find(c => c.id === pendingGuessId)?.name}!
-                    </button>
-                  )}
-                </div>
+          {/* Guess mode controls */}
+          {guessMode && (
+            <div className="flex gap-2">
+              <button onClick={() => { setGuessMode(false); setPendingGuessId(null); }}
+                className="flex-1 py-3.5 rounded-2xl font-bold text-slate-300 bg-slate-700/80 hover:bg-slate-600 border border-slate-600/40 active:scale-95 transition-all">
+                ← Cancel
+              </button>
+              {pendingGuessId ? (
+                <button onClick={handleConfirmGuess}
+                  className="flex-1 py-3.5 rounded-2xl font-black text-white bg-violet-600 hover:bg-violet-500 active:scale-95 transition-all shadow-lg shadow-violet-900/40">
+                  🎯 Guess {CHARS.find(c => c.id === pendingGuessId)?.name}!
+                </button>
               ) : (
-                <div className="flex gap-2">
-                  <button onClick={() => setShowQuestionPicker(true)}
-                    className="flex-1 py-4 rounded-2xl font-black text-white text-base bg-gradient-to-b from-violet-600 to-violet-700 hover:from-violet-500 hover:to-violet-600 active:scale-95 transition-all shadow-lg shadow-violet-900/40">
-                    ❓ Ask Question
-                  </button>
-                  <button onClick={() => setGuessMode(true)}
-                    className="px-5 py-4 rounded-2xl font-black text-white bg-slate-700/80 hover:bg-slate-600 border border-slate-600/40 active:scale-95 transition-all">
-                    🎯
-                  </button>
+                <div className="flex-1 py-3.5 rounded-2xl text-center text-slate-500 text-sm font-semibold bg-slate-800/40 border border-slate-700/30">
+                  Tap a character above
                 </div>
               )}
             </div>
           )}
 
-          {!isMyTurn && (
-            <div className="rounded-2xl p-4 bg-slate-800/40 border border-slate-700/30 text-center">
-              <p className="text-slate-400 text-sm font-semibold">
-                Waiting for <span className="text-white font-black">{gw.currentTurnPlayerName}</span> to ask a question…
+          {/* INLINE QUESTION PANEL — your turn, not in guess mode */}
+          {isMyTurn && !guessMode && (
+            <div className="rounded-2xl border border-violet-800/40 overflow-hidden"
+              style={{ background: 'rgba(18,10,36,0.97)' }}>
+
+              {/* Category tabs — scrollable */}
+              <div className="flex overflow-x-auto scrollbar-none gap-1.5 px-3 pt-3 pb-2">
+                {GW_QUESTION_CATEGORIES.map(cat => (
+                  <button key={cat} onClick={() => setActiveCategory(cat)}
+                    className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+                      activeCategory === cat
+                        ? 'bg-violet-600 text-white'
+                        : 'bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-700'
+                    }`}>
+                    {cat}
+                  </button>
+                ))}
+              </div>
+
+              {/* Questions for selected category */}
+              <div className="px-3 space-y-1.5 pb-2">
+                {categoryQuestions.map(q => {
+                  const asked = askedQIds.has(q.id);
+                  const logEntry = gw.questionLog.find(e => e.questionId === q.id);
+                  return (
+                    <button key={q.id}
+                      onClick={() => !asked && gw.askQuestion(q.id)}
+                      disabled={asked}
+                      className={`w-full text-left px-4 py-3 rounded-2xl text-sm font-semibold transition-all flex items-center gap-3 ${
+                        asked
+                          ? 'bg-slate-800/20 text-slate-600 cursor-default'
+                          : 'bg-slate-800/60 text-slate-200 hover:bg-violet-800/40 hover:text-white border border-transparent hover:border-violet-600/30 active:scale-[0.98]'
+                      }`}>
+                      <span className={`text-base flex-shrink-0 w-5 text-center ${asked ? 'text-slate-600' : 'text-violet-400'}`}>
+                        {asked ? (logEntry?.answer ? '✅' : '❌') : '?'}
+                      </span>
+                      <span className="flex-1">{q.text}</span>
+                      {asked && logEntry && (
+                        <span className={`text-xs font-black flex-shrink-0 ${logEntry.answer ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {logEntry.answer ? 'YES' : 'NO'}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Guess button at the bottom of question panel */}
+              <div className="px-3 pb-3">
+                <button onClick={() => setGuessMode(true)}
+                  className="w-full py-3 rounded-2xl font-black text-white text-sm bg-slate-700/50 hover:bg-violet-900/50 border border-violet-700/30 hover:border-violet-500/50 active:scale-95 transition-all">
+                  🎯 I know who it is — Make a Guess
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Waiting panel — opponent's turn */}
+          {!isMyTurn && !guessMode && (
+            <div className="rounded-2xl p-4 bg-slate-800/30 border border-slate-700/20 text-center">
+              <p className="text-slate-300 text-sm font-semibold">
+                <span className="text-white font-black">{gw.currentTurnPlayerName}</span> is choosing a question…
               </p>
-              <p className="text-slate-600 text-xs mt-1">Tap characters on the board to eliminate them</p>
+              <p className="text-violet-400/60 text-xs mt-1 font-semibold">
+                Tap characters above to eliminate them while you wait
+              </p>
             </div>
           )}
         </div>
@@ -506,6 +535,7 @@ export default function GuessWhoPage() {
   }
 
   // ── FINISHED ───────────────────────────────────────────────────────────────
+
   if (gw.phase === 'FINISHED') {
     if (gw.opponentLeft) {
       return (
@@ -526,7 +556,7 @@ export default function GuessWhoPage() {
     }
 
     if (gw.gameResult) {
-      const { won, opponentCharacterId, opponentCharacterName } = gw.gameResult;
+      const { won, opponentCharacterId } = gw.gameResult;
       const opponentChar = CHARS.find(c => c.id === opponentCharacterId);
       return (
         <div className="min-h-screen flex items-center justify-center p-4"
