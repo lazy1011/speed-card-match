@@ -14,6 +14,7 @@ export interface GWQuestionLogEntry {
   answer: boolean;
   askerName: string;
   askerId: string;
+  matchingCharacterIds: number[];
 }
 
 export interface GWGameResult {
@@ -31,6 +32,46 @@ export interface GWPlayerInfo {
   name: string;
 }
 
+// ── Sound helpers (Web Audio API — no files needed) ─────────────────────────
+
+function playYesSound() {
+  try {
+    const ctx = new AudioContext();
+    [523, 659, 784].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const t = ctx.currentTime + i * 0.1;
+      gain.gain.setValueAtTime(0.22, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+      osc.start(t);
+      osc.stop(t + 0.3);
+    });
+  } catch (_) { /* browser may block without user gesture */ }
+}
+
+function playNoSound() {
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(220, ctx.currentTime);
+    osc.frequency.linearRampToValueAtTime(90, ctx.currentTime + 0.3);
+    gain.gain.setValueAtTime(0.2, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.4);
+  } catch (_) {}
+}
+
+// ── Hook ────────────────────────────────────────────────────────────────────
+
 export function useGuessWhoSocket() {
   const socketRef = useRef<Socket | null>(null);
 
@@ -47,12 +88,28 @@ export function useGuessWhoSocket() {
   const [turnEndsAt, setTurnEndsAt] = useState<number | null>(null);
   const [questionLog, setQuestionLog] = useState<GWQuestionLogEntry[]>([]);
   const [lastQuestionResult, setLastQuestionResult] = useState<GWQuestionLogEntry | null>(null);
+  // Pending result = the last answer waiting to be reviewed before passing turn
+  const [pendingResult, setPendingResult] = useState<GWQuestionLogEntry | null>(null);
   const [gameResult, setGameResult] = useState<GWGameResult | null>(null);
   const [message, setMessage] = useState('');
   const [opponentLeft, setOpponentLeft] = useState(false);
 
   // Local elimination state (not synced — each player manages their own board)
   const [eliminatedIds, setEliminatedIds] = useState<Set<number>>(new Set());
+
+  // Keep myId in ref so socket event handlers can access it synchronously
+  const myIdRef = useRef<string | null>(null);
+  const roomCodeRef = useRef<string | null>(null);
+
+  useEffect(() => { myIdRef.current = myId; }, [myId]);
+  useEffect(() => { roomCodeRef.current = roomCode; }, [roomCode]);
+
+  // Save eliminations to localStorage so they survive reconnects
+  useEffect(() => {
+    const rc = roomCodeRef.current;
+    if (!rc || eliminatedIds.size === 0) return;
+    localStorage.setItem(`gw_elim_${rc}`, JSON.stringify([...eliminatedIds]));
+  }, [eliminatedIds]);
 
   useEffect(() => {
     const sock = io(SOCKET_URL, { transports: ['websocket', 'polling'] });
@@ -64,6 +121,7 @@ export function useGuessWhoSocket() {
     sock.on('GW_ROOM_CREATED', (data: { roomCode: string; playerId: string; playerName: string }) => {
       setRoomCode(data.roomCode);
       setMyId(data.playerId);
+      myIdRef.current = data.playerId;
       setMyName(data.playerName);
       setPlayers([{ id: data.playerId, name: data.playerName }]);
       setMessage('Room created — share the code with your opponent');
@@ -72,6 +130,7 @@ export function useGuessWhoSocket() {
     sock.on('GW_ROOM_JOINED', (data: { roomCode: string; playerId: string; playerName: string; players: GWPlayerInfo[] }) => {
       setRoomCode(data.roomCode);
       setMyId(data.playerId);
+      myIdRef.current = data.playerId;
       setMyName(data.playerName);
       setPlayers(data.players);
       setMessage('');
@@ -107,12 +166,25 @@ export function useGuessWhoSocket() {
       setCurrentTurnPlayerName(data.currentPlayerName);
       setTurnEndsAt(data.turnEndsAt);
       setLastQuestionResult(null);
+      setPendingResult(null);
       setMessage('');
     });
 
     sock.on('GW_QUESTION_RESULT', (data: GWQuestionLogEntry) => {
       setLastQuestionResult(data);
       setQuestionLog(prev => [data, ...prev]);
+
+      // Play sound
+      if (data.answer) {
+        playYesSound();
+      } else {
+        playNoSound();
+      }
+
+      // Show highlight panel only to the asker (so they can review before passing)
+      if (data.askerId === myIdRef.current) {
+        setPendingResult(data);
+      }
     });
 
     sock.on('GW_GAME_OVER', (data: {
@@ -123,9 +195,9 @@ export function useGuessWhoSocket() {
       setPhase('FINISHED');
       setCurrentTurnPlayerId(null);
       setTurnEndsAt(null);
-      const myCurrentId = myId ?? sock.id ?? '';
+      setPendingResult(null);
       setGameResult({
-        won: data.winnerId === myCurrentId,
+        won: data.winnerId === myIdRef.current,
         correct: data.correct,
         winnerName: data.winnerName,
         loserName: data.loserName,
@@ -157,6 +229,7 @@ export function useGuessWhoSocket() {
     }) => {
       setRoomCode(data.roomCode);
       setMyId(data.playerId);
+      myIdRef.current = data.playerId;
       setMyName(data.playerName);
       setMySecretCharacterId(data.myCharacterId);
       setOpponentHasSelected(data.opponentHasSelected);
@@ -164,6 +237,13 @@ export function useGuessWhoSocket() {
       setTurnEndsAt(data.turnEndsAt);
       if (data.phase === 'SELECTING') setPhase('SELECTING');
       else if (data.phase === 'PLAYING') setPhase('PLAYING');
+
+      // Restore eliminated characters from localStorage
+      const stored = localStorage.getItem(`gw_elim_${data.roomCode}`);
+      if (stored) {
+        try { setEliminatedIds(new Set(JSON.parse(stored))); } catch (_) {}
+      }
+
       setMessage('Reconnected!');
       setTimeout(() => setMessage(''), 3000);
     });
@@ -171,16 +251,12 @@ export function useGuessWhoSocket() {
     return () => { sock.disconnect(); };
   }, []);
 
-  // Store myId in a ref so the GW_GAME_OVER handler can access it
-  const myIdRef = useRef(myId);
-  useEffect(() => { myIdRef.current = myId; }, [myId]);
-
   const createRoom = useCallback((playerName: string) => {
     socketRef.current?.emit('GW_CREATE_ROOM', { playerName });
   }, []);
 
-  const joinRoom = useCallback((playerName: string, roomCode: string) => {
-    socketRef.current?.emit('GW_JOIN_ROOM', { playerName, roomCode: roomCode.toUpperCase() });
+  const joinRoom = useCallback((playerName: string, code: string) => {
+    socketRef.current?.emit('GW_JOIN_ROOM', { playerName, roomCode: code.toUpperCase() });
   }, []);
 
   const selectCharacter = useCallback((characterId: number) => {
@@ -189,6 +265,11 @@ export function useGuessWhoSocket() {
 
   const askQuestion = useCallback((questionId: string) => {
     socketRef.current?.emit('GW_ASK_QUESTION', { questionId });
+  }, []);
+
+  const passTurn = useCallback(() => {
+    setPendingResult(null);
+    socketRef.current?.emit('GW_PASS_TURN');
   }, []);
 
   const guessCharacter = useCallback((characterId: number) => {
@@ -204,11 +285,21 @@ export function useGuessWhoSocket() {
     });
   }, []);
 
-  const leaveRoom = useCallback(() => {
-    socketRef.current?.emit('GW_LEAVE_ROOM');
+  const eliminateNonMatching = useCallback((matchingIds: number[]) => {
+    setEliminatedIds(prev => {
+      const next = new Set(prev);
+      GW_CHARACTERS.forEach(c => {
+        if (!matchingIds.includes(c.id)) next.add(c.id);
+      });
+      return next;
+    });
+  }, []);
+
+  const resetState = useCallback(() => {
     setPhase('LOBBY');
     setRoomCode(null);
     setMyId(null);
+    myIdRef.current = null;
     setMyName('');
     setPlayers([]);
     setMySecretCharacterId(null);
@@ -218,30 +309,23 @@ export function useGuessWhoSocket() {
     setTurnEndsAt(null);
     setQuestionLog([]);
     setLastQuestionResult(null);
+    setPendingResult(null);
     setGameResult(null);
     setEliminatedIds(new Set());
     setOpponentLeft(false);
     setMessage('');
   }, []);
 
+  const leaveRoom = useCallback(() => {
+    socketRef.current?.emit('GW_LEAVE_ROOM');
+    if (roomCodeRef.current) localStorage.removeItem(`gw_elim_${roomCodeRef.current}`);
+    resetState();
+  }, [resetState]);
+
   const resetForRematch = useCallback(() => {
-    setPhase('LOBBY');
-    setRoomCode(null);
-    setMyId(null);
-    setMyName('');
-    setPlayers([]);
-    setMySecretCharacterId(null);
-    setOpponentHasSelected(false);
-    setCurrentTurnPlayerId(null);
-    setCurrentTurnPlayerName(null);
-    setTurnEndsAt(null);
-    setQuestionLog([]);
-    setLastQuestionResult(null);
-    setGameResult(null);
-    setEliminatedIds(new Set());
-    setOpponentLeft(false);
-    setMessage('');
-  }, []);
+    if (roomCodeRef.current) localStorage.removeItem(`gw_elim_${roomCodeRef.current}`);
+    resetState();
+  }, [resetState]);
 
   return {
     connected,
@@ -257,6 +341,7 @@ export function useGuessWhoSocket() {
     turnEndsAt,
     questionLog,
     lastQuestionResult,
+    pendingResult,
     gameResult,
     message,
     opponentLeft,
@@ -266,8 +351,10 @@ export function useGuessWhoSocket() {
     joinRoom,
     selectCharacter,
     askQuestion,
+    passTurn,
     guessCharacter,
     toggleEliminated,
+    eliminateNonMatching,
     leaveRoom,
     resetForRematch,
   };

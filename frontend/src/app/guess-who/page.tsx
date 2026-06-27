@@ -30,8 +30,6 @@ function TurnTimer({ endsAt, totalMs = 30_000 }: { endsAt: number; totalMs?: num
   );
 }
 
-// ── Attribute badge ────────────────────────────────────────────────────────────
-
 function AttrBadge({ label, value }: { label: string; value: string | boolean }) {
   if (value === false) return null;
   return (
@@ -66,6 +64,12 @@ export default function GuessWhoPage() {
     return () => clearTimeout(t);
   }, [gw.connected]);
 
+  // Clear guess mode when phase or turn changes
+  useEffect(() => {
+    setGuessMode(false);
+    setPendingGuessId(null);
+  }, [gw.phase, gw.currentTurnPlayerId]);
+
   const handleCopyCode = useCallback(() => {
     if (!gw.roomCode) return;
     navigator.clipboard.writeText(gw.roomCode).then(() => {
@@ -85,7 +89,6 @@ export default function GuessWhoPage() {
     }
   }, [gw.roomCode]);
 
-  // Auto-fill code from URL param
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
@@ -115,7 +118,37 @@ export default function GuessWhoPage() {
     setPendingGuessId(null);
   };
 
+  const handleEliminateAndPass = () => {
+    if (!gw.pendingResult) return;
+    gw.eliminateNonMatching(gw.pendingResult.matchingCharacterIds);
+    gw.passTurn();
+  };
+
   const mySecretChar = CHARS.find(c => c.id === gw.mySecretCharacterId);
+
+  // Only mark questions as "asked" if I was the one who asked them
+  const myAskedQIds = new Set(
+    gw.questionLog.filter(e => e.askerId === gw.myId).map(e => e.questionId).filter(Boolean)
+  );
+  const categoryQuestions = GW_QUESTIONS.filter(q => q.category === activeCategory);
+
+  // Card state in the board
+  const getCardState = (charId: number): 'active' | 'eliminated' | 'selected' | 'secret' | 'guess-target' | 'match' | 'nomatch' => {
+    if (guessMode) {
+      if (pendingGuessId === charId) return 'guess-target';
+      if (gw.eliminatedIds.has(charId)) return 'eliminated';
+      return 'active';
+    }
+    if (charId === gw.mySecretCharacterId) return 'secret';
+    if (gw.eliminatedIds.has(charId)) return 'eliminated';
+    if (gw.pendingResult && isMyTurn) {
+      return gw.pendingResult.matchingCharacterIds.includes(charId) ? 'match' : 'nomatch';
+    }
+    return 'active';
+  };
+
+  const hasPending = !!gw.pendingResult && isMyTurn;
+  const remainingCount = CHARS.length - gw.eliminatedIds.size;
 
   // ── LOBBY ──────────────────────────────────────────────────────────────────
 
@@ -284,9 +317,7 @@ export default function GuessWhoPage() {
 
           <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
             {CHARS.map(char => (
-              <CharacterCard
-                key={char.id}
-                character={char}
+              <CharacterCard key={char.id} character={char}
                 state={gw.mySecretCharacterId === char.id ? 'secret' : 'active'}
                 onClick={!gw.mySecretCharacterId ? () => handleCardClick(char.id) : undefined}
               />
@@ -300,16 +331,13 @@ export default function GuessWhoPage() {
   // ── PLAYING ────────────────────────────────────────────────────────────────
 
   if (gw.phase === 'PLAYING') {
-    const askedQIds = new Set(gw.questionLog.map(e => e.questionId).filter(Boolean));
-    const categoryQuestions = GW_QUESTIONS.filter(q => q.category === activeCategory);
-
     return (
       <div className="min-h-screen pb-8" style={{ background: 'linear-gradient(135deg, #0d0a24 0%, #0a1a2e 100%)' }}>
 
         {/* Confirm guess modal */}
         {pendingGuessId && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
-            <div className="w-full max-w-xs rounded-3xl p-6 text-center border border-violet-700/40 shadow-2xl animate-fade-in-up"
+            <div className="w-full max-w-xs rounded-3xl p-6 text-center border border-violet-700/40 shadow-2xl"
               style={{ background: '#0d0a24' }}>
               <div className="text-4xl mb-3">🎯</div>
               <p className="text-white font-black text-lg mb-1">Your guess:</p>
@@ -365,84 +393,119 @@ export default function GuessWhoPage() {
               isMyTurn ? 'border-violet-500/50 bg-violet-900/20' : 'border-slate-700/30 bg-slate-800/30'
             }`}>
               <p className={`text-xs font-black ${isMyTurn ? 'text-violet-300' : 'text-slate-400'}`}>
-                {isMyTurn ? '⚡ Your turn — ask or guess!' : `⏳ ${gw.currentTurnPlayerName}'s turn`}
+                {isMyTurn
+                  ? (hasPending ? '✅ Review answer & pass turn' : '⚡ Your turn — ask or guess!')
+                  : `⏳ ${gw.currentTurnPlayerName}'s turn`}
               </p>
               {gw.turnEndsAt && <TurnTimer endsAt={gw.turnEndsAt} />}
             </div>
           </div>
 
-          {/* Last answer banner — shown to BOTH players */}
-          {gw.lastQuestionResult && (
-            <div className={`rounded-2xl border flex items-center gap-3 px-4 py-3 ${
-              gw.lastQuestionResult.answer
-                ? 'border-emerald-600/50 bg-emerald-900/20'
-                : 'border-rose-600/50 bg-rose-900/20'
-            }`}>
-              <span className="text-3xl flex-shrink-0">
-                {gw.lastQuestionResult.answer ? '✅' : '❌'}
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="text-slate-400 text-[10px] font-bold uppercase tracking-wide">
-                  {gw.lastQuestionResult.askerName} asked
-                </p>
-                <p className="text-white font-semibold text-sm leading-snug truncate">
-                  {gw.lastQuestionResult.questionText}
-                </p>
-                <p className={`text-sm font-black ${gw.lastQuestionResult.answer ? 'text-emerald-300' : 'text-rose-300'}`}>
-                  {gw.lastQuestionResult.answer ? 'YES' : 'NO'}
-                  <span className="text-slate-500 font-normal text-xs ml-2">
-                    — tap the board to eliminate characters
-                  </span>
-                </p>
-              </div>
-            </div>
-          )}
-
           {/* Question log (collapsible) */}
           {showLog && gw.questionLog.length > 0 && (
             <div className="rounded-2xl border border-slate-700/40 bg-slate-900/60 overflow-hidden">
+              <p className="text-[10px] font-bold text-slate-500 px-3 pt-2">All questions (both players)</p>
               <div className="max-h-36 overflow-y-auto divide-y divide-slate-800/60">
                 {gw.questionLog.map((entry, i) => (
                   <div key={i} className="px-3 py-2 flex items-center gap-2">
                     <span className={`text-xs font-black flex-shrink-0 ${entry.answer ? 'text-emerald-400' : 'text-rose-400'}`}>
                       {entry.answer ? '✅' : '❌'}
                     </span>
-                    <span className="text-slate-400 text-xs flex-1 leading-tight">{entry.questionText}</span>
-                    <span className="text-slate-600 text-[10px] flex-shrink-0">{entry.askerName}</span>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-slate-400 text-xs leading-tight block truncate">{entry.questionText}</span>
+                      <span className="text-slate-600 text-[10px]">
+                        {entry.askerId === gw.myId ? 'You asked (about opponent)' : `${entry.askerName} asked (about you)`}
+                      </span>
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Character board — ALWAYS tappable (both players can eliminate anytime) */}
+          {/* ── PENDING RESULT PANEL — asker reviews YES/NO before passing ── */}
+          {hasPending && gw.pendingResult && (
+            <div className={`rounded-2xl border overflow-hidden ${
+              gw.pendingResult.answer
+                ? 'border-emerald-600/60 bg-emerald-900/15'
+                : 'border-rose-600/60 bg-rose-900/15'
+            }`}>
+              <div className="px-4 py-3">
+                <div className="flex items-center gap-3 mb-3">
+                  <span className="text-3xl flex-shrink-0">{gw.pendingResult.answer ? '✅' : '❌'}</span>
+                  <div>
+                    <p className="text-white font-black text-base">{gw.pendingResult.questionText}</p>
+                    <p className={`text-sm font-black ${gw.pendingResult.answer ? 'text-emerald-300' : 'text-rose-300'}`}>
+                      {gw.pendingResult.answer
+                        ? `YES — ${gw.pendingResult.matchingCharacterIds.length} characters still possible (green)`
+                        : `NO — ${CHARS.length - gw.pendingResult.matchingCharacterIds.length} to eliminate (dimmed)`}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={handleEliminateAndPass}
+                    className={`flex-1 py-3 rounded-2xl font-black text-white text-sm active:scale-95 transition-all shadow-lg ${
+                      gw.pendingResult.answer
+                        ? 'bg-emerald-700 hover:bg-emerald-600 shadow-emerald-900/40'
+                        : 'bg-rose-700 hover:bg-rose-600 shadow-rose-900/40'
+                    }`}>
+                    ✕ Eliminate All & Pass Turn
+                  </button>
+                  <button onClick={gw.passTurn}
+                    className="flex-shrink-0 px-4 py-3 rounded-2xl font-bold text-slate-300 text-sm bg-slate-700/80 hover:bg-slate-600 border border-slate-600/40 active:scale-95 transition-all">
+                    Skip →
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Opponent asked about you — notification banner */}
+          {gw.lastQuestionResult && gw.lastQuestionResult.askerId !== gw.myId && !isMyTurn && (
+            <div className={`rounded-2xl border flex items-center gap-3 px-4 py-3 ${
+              gw.lastQuestionResult.answer
+                ? 'border-amber-600/50 bg-amber-900/10'
+                : 'border-slate-600/50 bg-slate-800/20'
+            }`}>
+              <span className="text-2xl flex-shrink-0">{gw.lastQuestionResult.answer ? '✅' : '❌'}</span>
+              <div className="min-w-0 flex-1">
+                <p className="text-slate-400 text-[10px] font-bold uppercase tracking-wide">
+                  {gw.lastQuestionResult.askerName} asked about YOUR character
+                </p>
+                <p className="text-white font-semibold text-sm leading-snug">{gw.lastQuestionResult.questionText}</p>
+                <p className={`text-xs font-black ${gw.lastQuestionResult.answer ? 'text-amber-300' : 'text-slate-400'}`}>
+                  {gw.lastQuestionResult.answer ? 'YES — your character matches' : 'NO — your character does not match'}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Character board — always tappable */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <p className="text-slate-500 text-[11px] font-bold">
-                {guessMode ? '🎯 Tap a character to select your guess' : 'Tap any card to eliminate ✕ — tap again to restore'}
+                {hasPending
+                  ? gw.pendingResult?.answer
+                    ? '✅ Green = still possible · Dimmed = eliminate'
+                    : '❌ Green = still possible · Dimmed = should be eliminated'
+                  : guessMode
+                  ? '🎯 Tap a character to select your guess'
+                  : 'Tap any card to eliminate · tap again to restore'}
               </p>
-              <span className="text-slate-500 text-[11px]">
-                {CHARS.length - gw.eliminatedIds.size}/{CHARS.length}
-              </span>
+              <span className="text-slate-500 text-[11px]">{remainingCount}/{CHARS.length} left</span>
             </div>
             <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
-              {CHARS.map(char => {
-                const isElim = gw.eliminatedIds.has(char.id);
-                const isPending = pendingGuessId === char.id;
-                let state: 'active' | 'eliminated' | 'selected' | 'secret' | 'guess-target' = 'active';
-                if (isElim && !guessMode) state = 'eliminated';
-                else if (char.id === gw.mySecretCharacterId) state = 'secret';
-                else if (guessMode && isPending) state = 'guess-target';
-                return (
-                  <CharacterCard key={char.id} character={char} state={state} size="sm"
-                    onClick={() => handleCardClick(char.id)} />
-                );
-              })}
+              {CHARS.map(char => (
+                <CharacterCard key={char.id} character={char}
+                  state={getCardState(char.id)}
+                  size="sm"
+                  onClick={() => handleCardClick(char.id)} />
+              ))}
             </div>
           </div>
 
           {/* Guess mode controls */}
-          {guessMode && (
+          {guessMode && !hasPending && (
             <div className="flex gap-2">
               <button onClick={() => { setGuessMode(false); setPendingGuessId(null); }}
                 className="flex-1 py-3.5 rounded-2xl font-bold text-slate-300 bg-slate-700/80 hover:bg-slate-600 border border-slate-600/40 active:scale-95 transition-all">
@@ -461,12 +524,12 @@ export default function GuessWhoPage() {
             </div>
           )}
 
-          {/* INLINE QUESTION PANEL — your turn, not in guess mode */}
-          {isMyTurn && !guessMode && (
+          {/* ── INLINE QUESTION PANEL — my turn, no pending result, not guessing ── */}
+          {isMyTurn && !guessMode && !hasPending && (
             <div className="rounded-2xl border border-violet-800/40 overflow-hidden"
               style={{ background: 'rgba(18,10,36,0.97)' }}>
 
-              {/* Category tabs — scrollable */}
+              {/* Category tabs */}
               <div className="flex overflow-x-auto scrollbar-none gap-1.5 px-3 pt-3 pb-2">
                 {GW_QUESTION_CATEGORIES.map(cat => (
                   <button key={cat} onClick={() => setActiveCategory(cat)}
@@ -480,11 +543,11 @@ export default function GuessWhoPage() {
                 ))}
               </div>
 
-              {/* Questions for selected category */}
+              {/* Questions — only questions I asked are marked as asked */}
               <div className="px-3 space-y-1.5 pb-2">
                 {categoryQuestions.map(q => {
-                  const asked = askedQIds.has(q.id);
-                  const logEntry = gw.questionLog.find(e => e.questionId === q.id);
+                  const asked = myAskedQIds.has(q.id);
+                  const logEntry = gw.questionLog.find(e => e.questionId === q.id && e.askerId === gw.myId);
                   return (
                     <button key={q.id}
                       onClick={() => !asked && gw.askQuestion(q.id)}
@@ -508,7 +571,7 @@ export default function GuessWhoPage() {
                 })}
               </div>
 
-              {/* Guess button at the bottom of question panel */}
+              {/* Guess button */}
               <div className="px-3 pb-3">
                 <button onClick={() => setGuessMode(true)}
                   className="w-full py-3 rounded-2xl font-black text-white text-sm bg-slate-700/50 hover:bg-violet-900/50 border border-violet-700/30 hover:border-violet-500/50 active:scale-95 transition-all">
@@ -561,7 +624,7 @@ export default function GuessWhoPage() {
       return (
         <div className="min-h-screen flex items-center justify-center p-4"
           style={{ background: 'linear-gradient(135deg, #0d0a24 0%, #0a1a2e 100%)' }}>
-          <div className="w-full max-w-sm rounded-3xl p-8 text-center border shadow-2xl animate-fade-in-up"
+          <div className="w-full max-w-sm rounded-3xl p-8 text-center border shadow-2xl"
             style={{
               background: won ? 'linear-gradient(145deg, #0d0a24, #1a1040)' : 'linear-gradient(145deg, #0d0a24, #240a0a)',
               borderColor: won ? 'rgba(139,92,246,0.5)' : 'rgba(220,38,38,0.4)',

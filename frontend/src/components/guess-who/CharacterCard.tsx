@@ -110,7 +110,7 @@ function Avatar({ character }: { character: GWCharacter }) {
 
 interface CharacterCardProps {
   character: GWCharacter;
-  state: 'active' | 'eliminated' | 'selected' | 'secret' | 'guess-target';
+  state: 'active' | 'eliminated' | 'selected' | 'secret' | 'guess-target' | 'match' | 'nomatch';
   onClick?: () => void;
   size?: 'sm' | 'md';
 }
@@ -120,6 +120,8 @@ export default function CharacterCard({ character, state, onClick, size = 'md' }
   const isSelected = state === 'selected';
   const isSecret = state === 'secret';
   const isGuessTarget = state === 'guess-target';
+  const isMatch = state === 'match';
+  const isNoMatch = state === 'nomatch';
   const isSm = size === 'sm';
 
   return (
@@ -137,6 +139,10 @@ export default function CharacterCard({ character, state, onClick, size = 'md' }
           ? 'border-amber-400 bg-amber-900/20 ring-2 ring-amber-400/40 shadow-lg cursor-default'
           : isGuessTarget
           ? 'border-violet-400 bg-violet-900/20 ring-2 ring-violet-400/40 cursor-pointer hover:bg-violet-900/40 active:scale-95'
+          : isMatch
+          ? 'border-emerald-500/70 bg-emerald-900/25 ring-1 ring-emerald-500/40 cursor-pointer active:scale-95'
+          : isNoMatch
+          ? 'opacity-40 border-rose-800/30 bg-rose-950/20 cursor-pointer active:scale-95'
           : 'border-slate-700/50 bg-slate-800/60 cursor-pointer hover:border-slate-500 hover:bg-slate-700/60 active:scale-95'
         }
       `}
@@ -148,6 +154,12 @@ export default function CharacterCard({ character, state, onClick, size = 'md' }
       {isSecret && (
         <span className="absolute -top-2 -right-2 bg-amber-500 text-white text-xs font-black rounded-full w-5 h-5 flex items-center justify-center z-20">?</span>
       )}
+      {isMatch && (
+        <span className="absolute -top-2 -right-2 bg-emerald-500 text-white text-[9px] font-black rounded-full w-4 h-4 flex items-center justify-center z-20">✓</span>
+      )}
+      {isNoMatch && (
+        <span className="absolute -top-2 -right-2 bg-rose-600 text-white text-[9px] font-black rounded-full w-4 h-4 flex items-center justify-center z-20">✕</span>
+      )}
 
       <div className={isSm ? 'scale-75 origin-top' : ''}>
         <Avatar character={character} />
@@ -155,7 +167,12 @@ export default function CharacterCard({ character, state, onClick, size = 'md' }
 
       <span className={`font-black text-center leading-tight truncate w-full
         ${isSm ? 'text-[10px]' : 'text-xs'}
-        ${isEliminated ? 'text-slate-600' : isSelected ? 'text-emerald-300' : isSecret ? 'text-amber-300' : 'text-white'}
+        ${isEliminated ? 'text-slate-600'
+          : isSelected ? 'text-emerald-300'
+          : isSecret ? 'text-amber-300'
+          : isMatch ? 'text-emerald-300'
+          : isNoMatch ? 'text-slate-600'
+          : 'text-white'}
       `}>
         {character.name}
       </span>

@@ -311,15 +311,31 @@ export function setupGuessWhoEvents(io: Server) {
       const question = QUESTIONS.find(q => q.id === questionId);
       const asker = room.players.find(p => p.playerId === playerId);
 
+      // Characters that are STILL POSSIBLE given this answer (to highlight on board)
+      const matchingCharacterIds = CHARACTERS
+        .filter(c => answerQuestion(c, questionId) === answer)
+        .map(c => c.id);
+
       io.to(roomCode).emit('GW_QUESTION_RESULT', {
         questionId,
         questionText: question?.text ?? questionId,
         answer,
         askerName: asker?.name ?? '',
         askerId: playerId,
+        matchingCharacterIds,
       });
 
-      // Advance turn
+      // Don't advance turn immediately — asker reviews the answer and clicks Pass Turn.
+      // The turn timer will auto-advance if they don't pass in time.
+    });
+
+    // ── Pass turn ─────────────────────────────────────────────────────────────
+    socket.on('GW_PASS_TURN', () => {
+      const roomCode = socket.data.gwRoomCode;
+      const playerId = socket.data.gwPlayerId;
+      const room = gwRooms.get(roomCode);
+      if (!room || room.phase !== 'PLAYING') return;
+      if (room.currentTurnPlayerId !== playerId) return;
       advanceTurn(io, room);
     });
 
