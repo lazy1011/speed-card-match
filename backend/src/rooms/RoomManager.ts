@@ -1,5 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
 import { GameLogic } from '../game/GameState';
+import { BluffGameLogic } from '../game/BluffGameLogic';
+
+export type GameMode = 'speed-match' | 'bluff';
 
 /**
  * Room and game instance management
@@ -14,7 +17,9 @@ export class RoomManager {
       playerNames: string[];
       maxPlayers: number;
       status: 'waiting' | 'active' | 'finished';
+      gameMode: GameMode;
       gameLogic: GameLogic | null;
+      bluffLogic: BluffGameLogic | null;
       createdAt: number;
     }
   > = new Map();
@@ -22,7 +27,7 @@ export class RoomManager {
   /**
    * Create a new room and return the room code
    */
-  createRoom(hostId: string, hostName: string, maxPlayers: number = 4): string {
+  createRoom(hostId: string, hostName: string, maxPlayers: number = 4, gameMode: GameMode = 'speed-match'): string {
     const code = this.generateRoomCode();
     const room = {
       code,
@@ -31,7 +36,9 @@ export class RoomManager {
       playerNames: [hostName],
       maxPlayers,
       status: 'waiting' as const,
+      gameMode,
       gameLogic: null,
+      bluffLogic: null,
       createdAt: Date.now(),
     };
 
@@ -103,8 +110,14 @@ export class RoomManager {
       return { success: false, message: 'Need at least 2 players' };
     }
 
-    // Initialize game logic
-    room.gameLogic = new GameLogic(roomCode, room.playerIds, room.playerNames);
+    // Initialize game logic based on mode
+    if (room.gameMode === 'bluff') {
+      room.bluffLogic = new BluffGameLogic(roomCode, room.playerIds, room.playerNames);
+      room.gameLogic = null;
+    } else {
+      room.gameLogic = new GameLogic(roomCode, room.playerIds, room.playerNames);
+      room.bluffLogic = null;
+    }
     room.status = 'active';
 
     return { success: true, message: 'Game started' };
@@ -120,7 +133,15 @@ export class RoomManager {
     if (room.hostId !== hostId) return { success: false, message: 'Only host can restart' };
     if (room.playerIds.length < 2) return { success: false, message: 'Need at least 2 players' };
 
-    room.gameLogic = new GameLogic(roomCode, room.playerIds, room.playerNames);
+    if (room.gameMode === 'bluff') {
+      // Next game starts with the player after the previous winner
+      const nextStarterId = room.bluffLogic?.getNextGameStarterId() ?? undefined;
+      room.bluffLogic = new BluffGameLogic(roomCode, room.playerIds, room.playerNames, nextStarterId);
+      room.gameLogic = null;
+    } else {
+      room.gameLogic = new GameLogic(roomCode, room.playerIds, room.playerNames);
+      room.bluffLogic = null;
+    }
     room.status = 'active';
     return { success: true, message: 'Game restarted' };
   }
@@ -136,9 +157,11 @@ export class RoomManager {
       code: room.code,
       hostId: room.hostId,
       playerNames: room.playerNames,
+      playerIds: room.playerIds,
       playerCount: room.playerIds.length,
       maxPlayers: room.maxPlayers,
       status: room.status,
+      gameMode: room.gameMode,
       gameState: room.gameLogic?.getGameState() || null,
     };
   }
@@ -191,5 +214,14 @@ export class RoomManager {
   getGameLogic(roomCode: string): GameLogic | null {
     const room = this.rooms.get(roomCode);
     return room?.gameLogic || null;
+  }
+
+  getBluffLogic(roomCode: string): BluffGameLogic | null {
+    const room = this.rooms.get(roomCode);
+    return room?.bluffLogic || null;
+  }
+
+  getGameMode(roomCode: string): GameMode | null {
+    return this.rooms.get(roomCode)?.gameMode || null;
   }
 }

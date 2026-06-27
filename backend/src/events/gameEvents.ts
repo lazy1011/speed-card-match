@@ -8,12 +8,15 @@ import {
   ClaimStackRequest,
   ClaimStackResponse,
   LeaveRoomRequest,
+  CardValue,
 } from '../types/game';
 
 /** How long the claim race stays open before it auto-expires. */
 const CLAIM_WINDOW_MS = 5000;
 /** Grace period after a claim resolves during which late taps are "too slow" (no penalty). */
 const CLAIM_GRACE_MS = 1200;
+/** Bluff turn timeout — player is auto-skipped if they don't act in this window. */
+const BLUFF_TURN_TIMEOUT_MS = 30_000;
 
 /** Live, broadcast-safe summary of every player (name + current card count). */
 function playerSummaries(gameLogic: any) {
@@ -32,13 +35,85 @@ export function setupGameEvents(io: Server, roomManager: RoomManager) {
   // Per-room claim countdown timers and the time the last claim resolved.
   const claimTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const lastClaimResolvedAt = new Map<string, number>();
+  const bluffWindowTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const bluffTurnTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   function clearClaimTimer(roomCode: string) {
     const t = claimTimers.get(roomCode);
-    if (t) {
-      clearTimeout(t);
-      claimTimers.delete(roomCode);
-    }
+    if (t) { clearTimeout(t); claimTimers.delete(roomCode); }
+  }
+
+  function clearBluffTimer(roomCode: string) {
+    const t = bluffWindowTimers.get(roomCode);
+    if (t) { clearTimeout(t); bluffWindowTimers.delete(roomCode); }
+  }
+
+  function clearBluffTurnTimer(roomCode: string) {
+    const t = bluffTurnTimers.get(roomCode);
+    if (t) { clearTimeout(t); bluffTurnTimers.delete(roomCode); }
+  }
+
+  function startBluffTurnTimer(roomCode: string) {
+    clearBluffTurnTimer(roomCode);
+    const endsAt = Date.now() + BLUFF_TURN_TIMEOUT_MS;
+    io.to(roomCode).emit('BLUFF_TURN_TIMER', { endsAt });
+
+    const t = setTimeout(() => {
+      bluffTurnTimers.delete(roomCode);
+      const bluffLogic = roomManager.getBluffLogic(roomCode);
+      if (!bluffLogic || bluffLogic.isGameOver() || bluffLogic.isWaitingForRankPick()) return;
+
+      const currentPlayer = bluffLogic.getCurrentPlayer();
+      if (!currentPlayer) return;
+
+      // Window open: accept previous play silently, advance turn
+      if (bluffLogic.isBluffWindowOpen()) {
+        clearBluffTimer(roomCode);
+        bluffLogic.closeBluffWindow();
+        const prevWinnerId = bluffLogic.checkWinner();
+        io.to(roomCode).emit('BLUFF_WINDOW_CLOSED', { reason: 'timeout' });
+        if (prevWinnerId) {
+          const winner = bluffLogic.getWinner();
+          io.to(roomCode).emit('BLUFF_GAME_WON', { winnerId: prevWinnerId, winnerName: winner?.name });
+          return;
+        }
+        bluffLogic.advanceTurn();
+        const nextPlayer = bluffLogic.getCurrentPlayer();
+        io.to(roomCode).emit('BLUFF_PLAYER_SKIPPED', {
+          skipperName: currentPlayer.name,
+          currentPlayerId: nextPlayer?.id,
+          currentPlayerName: nextPlayer?.name,
+          seriesRank: bluffLogic.getCurrentSeriesRank(),
+          autoSkipped: true,
+        });
+        startBluffTurnTimer(roomCode);
+        return;
+      }
+
+      // Normal turn: auto-skip
+      const result = bluffLogic.skipTurn(currentPlayer.id);
+      if (!result.success) return;
+
+      if (result.seriesDiscarded) {
+        io.to(roomCode).emit('BLUFF_SERIES_DISCARDED', { message: `${currentPlayer.name} timed out — pile discarded` });
+        const nextStarterName = bluffLogic.getPlayers().find(p => p.id === result.nextStarterId)?.name;
+        io.to(roomCode).emit('BLUFF_RANK_PICK_NEEDED', { nextStarterId: result.nextStarterId, nextStarterName });
+      } else {
+        bluffLogic.advanceTurn();
+        const nextPlayer = bluffLogic.getCurrentPlayer();
+        io.to(roomCode).emit('BLUFF_PLAYER_SKIPPED', {
+          skipperName: currentPlayer.name,
+          currentPlayerId: nextPlayer?.id,
+          currentPlayerName: nextPlayer?.name,
+          seriesRank: bluffLogic.getCurrentSeriesRank(),
+          autoSkipped: true,
+        });
+        startBluffTurnTimer(roomCode);
+      }
+      console.log(`[Bluff] ${currentPlayer.name} timed out in room ${roomCode}`);
+    }, BLUFF_TURN_TIMEOUT_MS);
+
+    bluffTurnTimers.set(roomCode, t);
   }
 
   /**
@@ -112,8 +187,9 @@ export function setupGameEvents(io: Server, roomManager: RoomManager) {
 
       // If no room code, create new room
       if (!roomCode) {
-        roomCode = roomManager.createRoom(playerId, playerName, 4);
-        console.log(`[Game] New room created: ${roomCode} by ${playerName}`);
+        const gameMode = data.gameMode || 'speed-match';
+        roomCode = roomManager.createRoom(playerId, playerName, 4, gameMode);
+        console.log(`[Game] New room created: ${roomCode} by ${playerName} (mode: ${gameMode})`);
       } else {
         // Join existing room
         const result = roomManager.addPlayerToRoom(roomCode, playerId, playerName);
@@ -161,17 +237,40 @@ export function setupGameEvents(io: Server, roomManager: RoomManager) {
       if (callback) callback(result);
 
       if (result.success) {
-        const gameLogic = roomManager.getGameLogic(roomCode);
+        const gameMode = roomManager.getGameMode(roomCode);
 
-        // Broadcast game started
-        io.to(roomCode).emit('GAME_STARTED', {
-          gameState: gameLogic?.getGameState(),
-          players: playerSummaries(gameLogic),
-          currentPlayerName: gameLogic?.getCurrentPlayer()?.name,
-          currentPlayerId: gameLogic?.getCurrentPlayer()?.id,
-        });
+        if (gameMode === 'bluff') {
+          const bluffLogic = roomManager.getBluffLogic(roomCode);
+          if (!bluffLogic) return;
 
-        console.log(`[Game] Game started in room ${roomCode}`);
+          // Broadcast game started (hand sizes only, not actual cards)
+          io.to(roomCode).emit('BLUFF_GAME_STARTED', {
+            players: bluffLogic.getPlayerSummaries(),
+            currentPlayerId: bluffLogic.getCurrentPlayer()?.id,
+            currentPlayerName: bluffLogic.getCurrentPlayer()?.name,
+            pileSize: 0,
+            seriesRank: bluffLogic.getCurrentSeriesRank(),
+            kittySize: bluffLogic.getKittySize(),
+          });
+
+          // Send each player's private hand
+          const roomInfo = roomManager.getRoomInfo(roomCode);
+          (roomInfo?.playerIds || []).forEach((pid: string) => {
+            io.to(pid).emit('MY_HAND', { cards: bluffLogic.getHandForPlayer(pid) });
+          });
+
+          startBluffTurnTimer(roomCode);
+          console.log(`[Game] Bluff game started in room ${roomCode}`);
+        } else {
+          const gameLogic = roomManager.getGameLogic(roomCode);
+          io.to(roomCode).emit('GAME_STARTED', {
+            gameState: gameLogic?.getGameState(),
+            players: playerSummaries(gameLogic),
+            currentPlayerName: gameLogic?.getCurrentPlayer()?.name,
+            currentPlayerId: gameLogic?.getCurrentPlayer()?.id,
+          });
+          console.log(`[Game] Speed Match game started in room ${roomCode}`);
+        }
       }
     });
 
@@ -187,14 +286,38 @@ export function setupGameEvents(io: Server, roomManager: RoomManager) {
 
       if (result.success) {
         clearClaimTimer(roomCode);
-        const gameLogic = roomManager.getGameLogic(roomCode);
-        io.to(roomCode).emit('GAME_STARTED', {
-          gameState: gameLogic?.getGameState(),
-          players: playerSummaries(gameLogic),
-          currentPlayerName: gameLogic?.getCurrentPlayer()?.name,
-          currentPlayerId: gameLogic?.getCurrentPlayer()?.id,
-        });
-        console.log(`[Game] Game restarted in room ${roomCode}`);
+        clearBluffTimer(roomCode);
+        const gameMode = roomManager.getGameMode(roomCode);
+
+        if (gameMode === 'bluff') {
+          const bluffLogic = roomManager.getBluffLogic(roomCode);
+          if (!bluffLogic) return;
+
+          io.to(roomCode).emit('BLUFF_GAME_STARTED', {
+            players: bluffLogic.getPlayerSummaries(),
+            currentPlayerId: bluffLogic.getCurrentPlayer()?.id,
+            currentPlayerName: bluffLogic.getCurrentPlayer()?.name,
+            pileSize: 0,
+            seriesRank: bluffLogic.getCurrentSeriesRank(),
+            kittySize: bluffLogic.getKittySize(),
+          });
+
+          const roomInfo = roomManager.getRoomInfo(roomCode);
+          (roomInfo?.playerIds || []).forEach((pid: string) => {
+            io.to(pid).emit('MY_HAND', { cards: bluffLogic.getHandForPlayer(pid) });
+          });
+          startBluffTurnTimer(roomCode);
+          console.log(`[Game] Bluff game restarted in room ${roomCode}`);
+        } else {
+          const gameLogic = roomManager.getGameLogic(roomCode);
+          io.to(roomCode).emit('GAME_STARTED', {
+            gameState: gameLogic?.getGameState(),
+            players: playerSummaries(gameLogic),
+            currentPlayerName: gameLogic?.getCurrentPlayer()?.name,
+            currentPlayerId: gameLogic?.getCurrentPlayer()?.id,
+          });
+          console.log(`[Game] Speed Match game restarted in room ${roomCode}`);
+        }
       }
     });
 
@@ -366,35 +489,361 @@ export function setupGameEvents(io: Server, roomManager: RoomManager) {
     );
 
     /**
-     * LEAVE_ROOM: Player leaves room
+     * PLAY_BLUFF_CARDS: Current player plays cards face-down claiming them as the series rank.
+     * If there is an open bluff window from the previous play, this play implicitly accepts it
+     * (no Show) and closes the window before processing the new play.
+     */
+    socket.on(
+      'PLAY_BLUFF_CARDS',
+      (
+        data: { roomCode: string; cardIndices: number[]; claimedRank: CardValue; claimedCount: number },
+        callback?: (res: any) => void
+      ) => {
+        const { roomCode, cardIndices, claimedRank, claimedCount } = data;
+        const playerId = (socket.data as any).playerId;
+
+        const bluffLogic = roomManager.getBluffLogic(roomCode);
+        if (!bluffLogic) {
+          if (callback) callback({ success: false, message: 'Bluff game not found' });
+          return;
+        }
+
+        clearBluffTurnTimer(roomCode);
+
+        // If a bluff window is open, this new play implicitly accepts the previous play (no Show).
+        // Close the window first and check if the previous player won by emptying their hand.
+        if (bluffLogic.isBluffWindowOpen()) {
+          clearBluffTimer(roomCode);
+          bluffLogic.closeBluffWindow();
+          const prevWinnerId = bluffLogic.checkWinner();
+          io.to(roomCode).emit('BLUFF_WINDOW_CLOSED', { reason: 'next-play' });
+          if (prevWinnerId) {
+            const winner = bluffLogic.getWinner();
+            io.to(roomCode).emit('BLUFF_GAME_WON', {
+              winnerId: prevWinnerId,
+              winnerName: winner?.name,
+              nextGameStarterId: bluffLogic.getNextGameStarterId(),
+            });
+            console.log(`[Bluff] ${winner?.name} won room ${roomCode} (previous play accepted)`);
+            if (callback) callback({ success: false, message: 'Previous player won the game' });
+            return;
+          }
+        }
+
+        const result = bluffLogic.playCards(playerId, cardIndices, claimedRank, claimedCount);
+        if (!result.success) {
+          if (callback) callback(result);
+          return;
+        }
+        if (callback) callback({ success: true });
+
+        // CRITICAL: send the player's updated hand immediately so their next selection uses correct indices
+        socket.emit('MY_HAND', { cards: bluffLogic.getHandForPlayer(playerId) });
+
+        // Capture played-by name before advancing turn
+        const playedByName = bluffLogic.getPlayers().find((p) => p.id === playerId)?.name;
+        const seriesRank = bluffLogic.getCurrentSeriesRank();
+
+        // Advance turn — next player must Show or play
+        bluffLogic.advanceTurn();
+        const nextPlayer = bluffLogic.getCurrentPlayer();
+
+        io.to(roomCode).emit('BLUFF_CARDS_PLAYED', {
+          playerName: playedByName,
+          playedById: playerId,
+          claimedCount,
+          claimedRank: seriesRank ?? claimedRank,
+          newPileSize: bluffLogic.getPileSize(),
+          players: bluffLogic.getPlayerSummaries(),
+          seriesRank,
+          currentPlayerId: nextPlayer?.id,
+          currentPlayerName: nextPlayer?.name,
+        });
+
+        // SHOW window is open indefinitely — no auto-close timer.
+        // It closes when: (a) someone calls Show, or (b) the next player plays.
+        io.to(roomCode).emit('BLUFF_WINDOW_OPEN', {
+          playedByName,
+          playedById: playerId,
+          claimedCount,
+          claimedRank: seriesRank ?? claimedRank,
+        });
+
+        startBluffTurnTimer(roomCode);
+        console.log(`[Bluff] ${playedByName} played ${claimedCount}x${seriesRank} in room ${roomCode}`);
+      }
+    );
+
+    /**
+     * SKIP_BLUFF_TURN: Current player skips their turn.
+     * If all players skip consecutively, the series is discarded.
+     */
+    socket.on(
+      'SKIP_BLUFF_TURN',
+      (data: { roomCode: string }, callback?: (res: any) => void) => {
+        const { roomCode } = data;
+        const playerId = (socket.data as any).playerId;
+
+        const bluffLogic = roomManager.getBluffLogic(roomCode);
+        if (!bluffLogic) {
+          if (callback) callback({ success: false, message: 'Bluff game not found' });
+          return;
+        }
+
+        clearBluffTurnTimer(roomCode);
+
+        const result = bluffLogic.skipTurn(playerId);
+        if (!result.success) {
+          if (callback) callback(result);
+          return;
+        }
+        if (callback) callback({ success: true });
+
+        const skipperName = bluffLogic.getPlayers().find((p) => p.id === playerId)?.name;
+
+        if (result.seriesDiscarded) {
+          io.to(roomCode).emit('BLUFF_SERIES_DISCARDED', { message: 'All players skipped — pile discarded' });
+          const nextStarterName = bluffLogic.getPlayers().find((p) => p.id === result.nextStarterId)?.name;
+          io.to(roomCode).emit('BLUFF_RANK_PICK_NEEDED', { nextStarterId: result.nextStarterId, nextStarterName });
+          console.log(`[Bluff] Series discarded in room ${roomCode} — ${nextStarterName} picks rank`);
+        } else {
+          bluffLogic.advanceTurn();
+          const nextPlayer = bluffLogic.getCurrentPlayer();
+          io.to(roomCode).emit('BLUFF_PLAYER_SKIPPED', {
+            skipperName,
+            currentPlayerId: nextPlayer?.id,
+            currentPlayerName: nextPlayer?.name,
+            seriesRank: bluffLogic.getCurrentSeriesRank(),
+          });
+          startBluffTurnTimer(roomCode);
+          console.log(`[Bluff] ${skipperName} skipped in room ${roomCode}`);
+        }
+      }
+    );
+
+    /**
+     * SET_SERIES_RANK: Series starter picks the rank for the next series.
+     */
+    socket.on(
+      'SET_SERIES_RANK',
+      (data: { roomCode: string; rank: CardValue }, callback?: (res: any) => void) => {
+        const { roomCode, rank } = data;
+        const playerId = (socket.data as any).playerId;
+
+        const bluffLogic = roomManager.getBluffLogic(roomCode);
+        if (!bluffLogic) {
+          if (callback) callback({ success: false, message: 'Bluff game not found' });
+          return;
+        }
+
+        clearBluffTurnTimer(roomCode);
+
+        const result = bluffLogic.setSeriesRank(playerId, rank);
+        if (!result.success) {
+          if (callback) callback(result);
+          return;
+        }
+        if (callback) callback({ success: true });
+
+        const currentPlayer = bluffLogic.getCurrentPlayer();
+        const starterName = bluffLogic.getPlayers().find((p) => p.id === playerId)?.name;
+
+        io.to(roomCode).emit('BLUFF_SERIES_STARTED', {
+          seriesRank: rank,
+          starterId: playerId,
+          starterName,
+          currentPlayerId: currentPlayer?.id,
+          currentPlayerName: currentPlayer?.name,
+        });
+
+        startBluffTurnTimer(roomCode);
+        console.log(`[Bluff] New series rank ${rank} set by ${starterName} in room ${roomCode}`);
+      }
+    );
+
+    /**
+     * CALL_BLUFF: Any player (not the one who played) calls "show" on the last play.
+     */
+    socket.on(
+      'CALL_BLUFF',
+      (data: { roomCode: string }, callback?: (res: any) => void) => {
+        const { roomCode } = data;
+        const callerId = (socket.data as any).playerId;
+
+        const bluffLogic = roomManager.getBluffLogic(roomCode);
+        if (!bluffLogic) {
+          if (callback) callback({ success: false, message: 'Bluff game not found' });
+          return;
+        }
+
+        if (!bluffLogic.isBluffWindowOpen()) {
+          if (callback) callback({ success: false, message: 'No show window open' });
+          return;
+        }
+
+        clearBluffTimer(roomCode);
+        clearBluffTurnTimer(roomCode);
+
+        const result = bluffLogic.callBluff(callerId);
+        if (!result.success) {
+          if (callback) callback(result);
+          return;
+        }
+        if (callback) callback({ success: true });
+
+        // Send each player's updated hand immediately after cards move
+        const roomInfo = roomManager.getRoomInfo(roomCode);
+        (roomInfo?.playerIds || []).forEach((pid: string) => {
+          io.to(pid).emit('MY_HAND', { cards: bluffLogic.getHandForPlayer(pid) });
+        });
+
+        // Check winner NOW (before emitting anything) so we know if rank-pick is needed
+        const winnerId = bluffLogic.checkWinner();
+
+        const callerName = bluffLogic.getPlayers().find((p) => p.id === callerId)?.name;
+        const nextStarterName = bluffLogic.getPlayers().find((p) => p.id === result.nextStarterId)?.name;
+
+        // Reveal the last play's cards
+        io.to(roomCode).emit('BLUFF_CALLED', {
+          callerName,
+          revealedCards: result.revealedCards,
+          claimedRank: result.claimedRank,
+          callerWins: result.callerWins,
+          loserName: result.loserName,
+          totalPileCards: result.loserReceivesCards,
+        });
+
+        // Settlement — embed rank-pick info so frontend can update in one event
+        io.to(roomCode).emit('BLUFF_SETTLED', {
+          loserName: result.loserName,
+          cardsReceived: result.loserReceivesCards,
+          callerWins: result.callerWins,
+          newPileSize: 0,
+          players: bluffLogic.getPlayerSummaries(),
+          currentPlayerId: bluffLogic.getCurrentPlayer()?.id,
+          currentPlayerName: bluffLogic.getCurrentPlayer()?.name,
+          // Rank-pick info — null when game is already won
+          rankPickNeeded: !winnerId,
+          nextStarterId: winnerId ? null : result.nextStarterId,
+          nextStarterName: winnerId ? null : nextStarterName,
+        });
+
+        io.to(roomCode).emit('BLUFF_WINDOW_CLOSED', { reason: 'called' });
+
+        if (winnerId) {
+          const winner = bluffLogic.getWinner();
+          io.to(roomCode).emit('BLUFF_GAME_WON', {
+            winnerId,
+            winnerName: winner?.name,
+            nextGameStarterId: bluffLogic.getNextGameStarterId(),
+          });
+        } else {
+          // Keep BLUFF_RANK_PICK_NEEDED as a redundant safety net
+          io.to(roomCode).emit('BLUFF_RANK_PICK_NEEDED', {
+            nextStarterId: result.nextStarterId,
+            nextStarterName,
+          });
+        }
+
+        console.log(`[Bluff] Show called in room ${roomCode} — callerWins: ${result.callerWins}, nextStarter: ${nextStarterName}`);
+      }
+    );
+
+    /**
+     * SEND_CHAT: Player sends a chat message to the room
+     */
+    socket.on('SEND_CHAT', (data: { roomCode: string; text: string; playerName: string }) => {
+      if (!data.roomCode || !data.text?.trim()) return;
+      io.to(data.roomCode).emit('CHAT_MESSAGE', {
+        playerName: data.playerName || 'Unknown',
+        text: data.text.trim().slice(0, 200),
+        timestamp: Date.now(),
+        id: Math.random().toString(36).slice(2, 10),
+      });
+    });
+
+    /**
+     * SEND_REACTION: Player sends an emoji reaction to the room
+     */
+    socket.on('SEND_REACTION', (data: { roomCode: string; emoji: string; playerName: string }) => {
+      if (!data.roomCode || !data.emoji) return;
+      io.to(data.roomCode).emit('REACTION', {
+        playerName: data.playerName || 'Unknown',
+        emoji: data.emoji,
+        id: Math.random().toString(36).slice(2, 10),
+      });
+    });
+
+    /**
+     * LEAVE_ROOM: Player voluntarily leaves room
      */
     socket.on('LEAVE_ROOM', (data: LeaveRoomRequest) => {
       const { roomCode, playerId } = data;
+
+      // Look up name before removal
+      const roomInfo = roomManager.getRoomInfo(roomCode);
+      const playerIdx = (roomInfo?.playerIds ?? []).indexOf(playerId);
+      const playerName = playerIdx >= 0 ? (roomInfo!.playerNames[playerIdx] ?? 'A player') : 'A player';
+      const wasActive = roomInfo?.status === 'active';
 
       const result = roomManager.removePlayerFromRoom(roomCode, playerId);
       socket.leave(roomCode);
 
       if (result.success && result.roomExists) {
-        const roomInfo = roomManager.getRoomInfo(roomCode);
-        io.to(roomCode).emit('ROOM_UPDATED', roomInfo);
-        console.log(`[Game] Player left room ${roomCode}`);
+        const updated = roomManager.getRoomInfo(roomCode);
+        io.to(roomCode).emit('ROOM_UPDATED', updated);
+
+        if (wasActive) {
+          io.to(roomCode).emit('PLAYER_DISCONNECTED', {
+            playerId,
+            playerName,
+            remainingCount: updated?.playerCount ?? 0,
+          });
+          if ((updated?.playerCount ?? 0) <= 1) {
+            io.to(roomCode).emit('GAME_ABANDONED', {
+              reason: `${playerName} left the game — not enough players to continue.`,
+            });
+          }
+        }
+        console.log(`[Game] ${playerName} left room ${roomCode}`);
       } else if (!result.roomExists) {
         clearClaimTimer(roomCode);
-        console.log(`[Game] Room ${roomCode} deleted`);
+        clearBluffTimer(roomCode);
+        clearBluffTurnTimer(roomCode);
+        console.log(`[Game] Room ${roomCode} deleted after ${playerName} left`);
       }
     });
 
     /**
-     * Handle disconnect
+     * Handle disconnect (network loss / closed tab)
      */
     socket.on('disconnect', () => {
       const roomCode = (socket.data as any).roomCode;
       const playerId = (socket.data as any).playerId;
 
       if (roomCode && playerId) {
-        roomManager.removePlayerFromRoom(roomCode, playerId);
-        io.to(roomCode).emit('PLAYER_DISCONNECTED', { playerId });
-        console.log(`[Socket] Player disconnected from room ${roomCode}: ${playerId}`);
+        const roomInfo = roomManager.getRoomInfo(roomCode);
+        const playerIdx = (roomInfo?.playerIds ?? []).indexOf(playerId);
+        const playerName = playerIdx >= 0 ? (roomInfo!.playerNames[playerIdx] ?? 'A player') : 'A player';
+        const wasActive = roomInfo?.status === 'active';
+
+        clearBluffTurnTimer(roomCode);
+        const result = roomManager.removePlayerFromRoom(roomCode, playerId);
+
+        if (result.roomExists) {
+          const updated = roomManager.getRoomInfo(roomCode);
+          io.to(roomCode).emit('PLAYER_DISCONNECTED', {
+            playerId,
+            playerName,
+            remainingCount: updated?.playerCount ?? 0,
+          });
+          if (wasActive && (updated?.playerCount ?? 0) <= 1) {
+            io.to(roomCode).emit('GAME_ABANDONED', {
+              reason: `${playerName} disconnected — not enough players to continue.`,
+            });
+          }
+        }
+        console.log(`[Socket] ${playerName} disconnected from room ${roomCode}`);
       }
     });
   });

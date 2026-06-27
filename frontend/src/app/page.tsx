@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { useGameSocket } from '@/hooks/useGameSocket';
 import GameBoard from '@/components/GameBoard';
 import PlayerList from '@/components/PlayerList';
@@ -8,27 +9,26 @@ import CurrentCall from '@/components/CurrentCall';
 import StackDisplay from '@/components/StackDisplay';
 import ShuffleOverlay from '@/components/ShuffleOverlay';
 import WakeUpLoader from '@/components/WakeUpLoader';
+import ChatPanel from '@/components/ChatPanel';
 
 export default function Home() {
+  const router = useRouter();
   const game = useGameSocket();
+  const [selectedGame, setSelectedGame] = useState<'speed-match' | 'bluff' | null>(null);
   const [playerName, setPlayerName] = useState('');
   const [joinCode, setJoinCode] = useState('');
   const [showJoinInput, setShowJoinInput] = useState(false);
   const [isHost, setIsHost] = useState(false);
   const [showShuffle, setShowShuffle] = useState(false);
   const [showWakeUp, setShowWakeUp] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
 
-  // Show wake-up loader after 2s of no connection; hide immediately on connect.
   useEffect(() => {
     if (game.connected) { setShowWakeUp(false); return; }
     const t = setTimeout(() => setShowWakeUp(true), 2000);
     return () => clearTimeout(t);
   }, [game.connected]);
 
-  // Whose turn it is — compare by socket ID (robust to duplicate names).
-  const isCurrentPlayer = !!game.myId && game.myId === game.currentPlayerId;
-
-  // Show a brief shuffle animation when the game starts.
   useEffect(() => {
     if (!game.gameStarted) return;
     setShowShuffle(true);
@@ -36,133 +36,201 @@ export default function Home() {
     return () => clearTimeout(t);
   }, [game.gameStarted]);
 
+  const isCurrentPlayer = !!game.myId && game.myId === game.currentPlayerId;
+
   const handleCreateRoom = () => {
-    if (!playerName.trim()) {
-      alert('Please enter your name');
-      return;
-    }
+    if (!playerName.trim()) { alert('Please enter your name'); return; }
     game.joinRoom(playerName);
     setIsHost(true);
   };
 
   const handleJoinRoom = () => {
-    if (!playerName.trim()) {
-      alert('Please enter your name');
-      return;
-    }
-    if (!joinCode.trim()) {
-      alert('Please enter room code');
-      return;
-    }
+    if (!playerName.trim()) { alert('Please enter your name'); return; }
+    if (!joinCode.trim()) { alert('Please enter room code'); return; }
     game.joinRoom(playerName, joinCode);
     setIsHost(false);
   };
 
-  const inputClass =
-    'w-full px-4 py-3 rounded-xl border-2 border-slate-200 bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition';
+  const handleCopyCode = useCallback(() => {
+    if (!game.roomCode) return;
+    navigator.clipboard.writeText(game.roomCode).then(() => {
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 2000);
+    });
+  }, [game.roomCode]);
 
-  // Home screen
+  const handleSendChat = useCallback((text: string) => {
+    game.sendChat(text, playerName);
+  }, [game, playerName]);
+
+  const inputClass =
+    'w-full px-4 py-3 rounded-2xl border-2 border-[#1e3a25] bg-[#0d2018] text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/30 transition font-semibold';
+
+  // ── Game selector ────────────────────────────────────────────────────────
+  if (!selectedGame) {
+    return (
+      <div className="min-h-screen felt-bg flex flex-col items-center justify-center p-6">
+        {showWakeUp && <WakeUpLoader />}
+
+        <div className="mb-10 text-center">
+          <div className="text-6xl mb-3">🃏</div>
+          <h1 className="text-5xl font-black text-white tracking-tight">Card Games</h1>
+          <p className="text-emerald-400/70 mt-2 font-semibold text-lg">Choose your game</p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 w-full max-w-2xl">
+          {/* Speed Match card */}
+          <button
+            onClick={() => setSelectedGame('speed-match')}
+            className="group relative overflow-hidden rounded-3xl p-8 text-left transition-all active:scale-95 border-2 border-yellow-500/30 hover:border-yellow-400/60"
+            style={{ background: 'linear-gradient(145deg, #1a2e0f, #0f1f09)' }}
+          >
+            <div className="absolute top-0 right-0 w-32 h-32 rounded-full opacity-20 group-hover:opacity-40 transition-opacity"
+              style={{ background: 'radial-gradient(circle, #ffd60a, transparent)', transform: 'translate(30%, -30%)' }} />
+            <div className="text-5xl mb-4">⚡</div>
+            <h2 className="text-2xl font-black text-white mb-2">Speed Match</h2>
+            <p className="text-slate-400 text-sm font-semibold leading-relaxed">
+              Race to match cards and slam the stack before anyone else does.
+            </p>
+            <div className="mt-5 flex items-center gap-2 text-yellow-400 text-sm font-bold">
+              <span>2–4 players</span>
+              <span className="text-slate-600">·</span>
+              <span>Fast-paced</span>
+            </div>
+          </button>
+
+          {/* Bluff card */}
+          <button
+            onClick={() => router.push('/bluff')}
+            className="group relative overflow-hidden rounded-3xl p-8 text-left transition-all active:scale-95 border-2 border-rose-500/30 hover:border-rose-400/60"
+            style={{ background: 'linear-gradient(145deg, #2a0f1a, #1a0810)' }}
+          >
+            <div className="absolute top-0 right-0 w-32 h-32 rounded-full opacity-20 group-hover:opacity-40 transition-opacity"
+              style={{ background: 'radial-gradient(circle, #e63946, transparent)', transform: 'translate(30%, -30%)' }} />
+            <div className="text-5xl mb-4">🎭</div>
+            <h2 className="text-2xl font-black text-white mb-2">Bluff</h2>
+            <p className="text-slate-400 text-sm font-semibold leading-relaxed">
+              Play cards face-down and lie about their rank. Call "Show" to catch liars.
+            </p>
+            <div className="mt-5 flex items-center gap-2 text-rose-400 text-sm font-bold">
+              <span>2–6 players</span>
+              <span className="text-slate-600">·</span>
+              <span>Strategic</span>
+            </div>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Speed Match lobby ────────────────────────────────────────────────────
   if (!game.roomCode) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-indigo-700 via-purple-700 to-fuchsia-700 flex items-center justify-center p-4">
+      <div className="min-h-screen felt-bg flex items-center justify-center p-4">
         {showWakeUp && <WakeUpLoader />}
         <div className="w-full max-w-md">
-          <div className="bg-white rounded-3xl shadow-2xl p-8">
-            <h1 className="text-4xl font-extrabold text-center mb-1 bg-gradient-to-r from-indigo-600 to-fuchsia-600 bg-clip-text text-transparent">
-              ⚡ Speed Card Match
-            </h1>
-            <p className="text-center text-slate-500 mb-8">Real-time Multiplayer Card Game</p>
+          <button
+            onClick={() => setSelectedGame(null)}
+            className="mb-4 text-slate-400 hover:text-emerald-400 text-sm font-bold flex items-center gap-1 transition-colors"
+          >
+            ← Back to games
+          </button>
+          <div className="rounded-3xl border border-[#1e3a25] shadow-2xl p-8" style={{ background: '#0d2018' }}>
+            <div className="text-center mb-6">
+              <div className="text-4xl mb-2">⚡</div>
+              <h1 className="text-3xl font-black text-white">Speed Match</h1>
+              <p className="text-emerald-400/70 mt-1 font-semibold">Real-time multiplayer</p>
+            </div>
 
             {!game.connected && (
-              <div className="mb-4 p-3 bg-amber-50 border border-amber-300 rounded-xl text-amber-800 text-sm text-center">
+              <div className="mb-4 p-3 bg-amber-900/30 border border-amber-600/40 rounded-2xl text-amber-400 text-sm text-center font-semibold">
                 Connecting to server…
               </div>
             )}
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">Your Name</label>
+                <label className="block text-sm font-bold text-slate-300 mb-2">Your Name</label>
                 <input
                   type="text"
                   value={playerName}
                   onChange={(e) => setPlayerName(e.target.value)}
                   placeholder="Enter your name"
                   className={inputClass}
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter' && !showJoinInput) handleCreateRoom();
-                  }}
+                  onKeyPress={(e) => { if (e.key === 'Enter' && !showJoinInput) handleCreateRoom(); }}
                 />
               </div>
 
-              <button
-                onClick={handleCreateRoom}
-                disabled={!game.connected || !playerName.trim()}
-                className={`w-full py-3 rounded-xl font-bold text-white transition-all ${
-                  game.connected && playerName.trim()
-                    ? 'bg-gradient-to-b from-indigo-500 to-indigo-600 hover:from-indigo-400 hover:to-indigo-500 active:scale-95 cursor-pointer shadow-lg shadow-indigo-300'
-                    : 'bg-slate-300 cursor-not-allowed'
-                }`}
-              >
-                ➕ Create New Room
-              </button>
+              {!showJoinInput && (
+                <>
+                  <button
+                    onClick={handleCreateRoom}
+                    disabled={!game.connected || !playerName.trim()}
+                    className={`w-full py-3.5 rounded-2xl font-black text-lg transition-all ${
+                      game.connected && playerName.trim()
+                        ? 'bg-yellow-400 hover:bg-yellow-300 text-slate-900 active:scale-95 shadow-lg shadow-yellow-900/30'
+                        : 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                    }`}
+                  >
+                    ➕ Create Room
+                  </button>
 
-              <div className="relative my-6">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-slate-200"></div>
-                </div>
-                <div className="relative flex justify-center text-sm">
-                  <span className="px-2 bg-white text-slate-400">Or</span>
-                </div>
-              </div>
+                  <div className="relative my-4">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-[#1e3a25]"></div>
+                    </div>
+                    <div className="relative flex justify-center text-sm">
+                      <span className="px-3 text-slate-500 font-semibold" style={{ background: '#0d2018' }}>or</span>
+                    </div>
+                  </div>
 
-              {!showJoinInput ? (
-                <button
-                  onClick={() => setShowJoinInput(true)}
-                  className="w-full py-3 rounded-xl font-bold text-indigo-600 border-2 border-indigo-500 hover:bg-indigo-50 transition-all"
-                >
-                  Join Existing Room
-                </button>
-              ) : (
+                  <button
+                    onClick={() => setShowJoinInput(true)}
+                    className="w-full py-3.5 rounded-2xl font-black text-white border-2 border-emerald-600/50 hover:border-emerald-400 hover:bg-emerald-900/30 transition-all"
+                  >
+                    Join Existing Room
+                  </button>
+                </>
+              )}
+
+              {showJoinInput && (
                 <>
                   <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">
-                      Room Code
-                    </label>
+                    <label className="block text-sm font-bold text-slate-300 mb-2">Room Code</label>
                     <input
                       type="text"
                       value={joinCode}
                       onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
                       placeholder="ENTER CODE"
                       maxLength={6}
-                      className={`${inputClass} tracking-[0.4em] text-center font-mono font-bold`}
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter' && joinCode.trim()) handleJoinRoom();
-                      }}
+                      className={`${inputClass} tracking-[0.4em] text-center text-xl`}
+                      autoFocus
+                      onKeyPress={(e) => { if (e.key === 'Enter' && joinCode.trim()) handleJoinRoom(); }}
                     />
                   </div>
                   <button
                     onClick={handleJoinRoom}
                     disabled={!game.connected || !playerName.trim() || !joinCode.trim()}
-                    className={`w-full py-3 rounded-xl font-bold text-white transition-all ${
+                    className={`w-full py-3.5 rounded-2xl font-black text-lg transition-all ${
                       game.connected && playerName.trim() && joinCode.trim()
-                        ? 'bg-gradient-to-b from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 active:scale-95 cursor-pointer shadow-lg shadow-emerald-300'
-                        : 'bg-slate-300 cursor-not-allowed'
+                        ? 'bg-emerald-500 hover:bg-emerald-400 text-white active:scale-95 shadow-lg shadow-emerald-900/40'
+                        : 'bg-slate-700 text-slate-500 cursor-not-allowed'
                     }`}
                   >
                     ✓ Join Room
                   </button>
                   <button
                     onClick={() => setShowJoinInput(false)}
-                    className="w-full py-2 text-slate-400 hover:text-slate-600"
+                    className="w-full py-2 text-slate-500 hover:text-slate-300 text-sm font-semibold"
                   >
-                    Back
+                    ← Back to Create Room
                   </button>
                 </>
               )}
             </div>
 
             {game.message && (
-              <div className="mt-6 p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-700 text-sm text-center">
+              <div className="mt-5 p-3 bg-emerald-900/20 border border-emerald-700/30 rounded-2xl text-emerald-300 text-sm text-center font-semibold">
                 {game.message}
               </div>
             )}
@@ -172,68 +240,132 @@ export default function Home() {
     );
   }
 
-  // Game screen
+  // ── Speed Match game screen ──────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950 p-4 md:p-6">
+    <div className="min-h-screen felt-bg p-4 md:p-6">
       {showShuffle && <ShuffleOverlay />}
+
+      {/* ── Reconnecting overlay ── */}
+      {game.reconnecting && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm">
+          <div className="text-center animate-fade-in-up">
+            <div className="w-14 h-14 mx-auto mb-4 rounded-full border-4 border-emerald-500/30 border-t-emerald-400 animate-wake-spin" />
+            <p className="text-white font-black text-xl">Reconnecting…</p>
+            <p className="text-slate-400 text-sm mt-1 font-semibold">Please wait, restoring connection</p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Player left toast ── */}
+      {game.playerLeft && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 animate-fade-in-up">
+          <div className="flex items-center gap-3 px-5 py-3 rounded-2xl bg-slate-800 border border-slate-600/50 shadow-2xl text-white font-semibold text-sm">
+            <span className="text-2xl">👋</span>
+            <span><span className="font-black text-yellow-300">{game.playerLeft}</span> left the game</span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Reaction time badge ── */}
+      {game.reactionTimeMs !== null && (
+        <div className="fixed top-5 right-5 z-50 animate-fade-in-up">
+          <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-yellow-500/20 border border-yellow-400/40 shadow-xl">
+            <span className="text-xl">⚡</span>
+            <span className="text-yellow-300 font-black text-sm">
+              You claimed in {(game.reactionTimeMs / 1000).toFixed(2)}s!
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Claim streak badge ── */}
+      {game.claimStreak >= 3 && (
+        <div className="fixed top-16 right-5 z-50 animate-fade-in-up">
+          <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-rose-500/20 border border-rose-400/40 shadow-xl">
+            <span className="text-xl">🔥</span>
+            <span className="text-rose-300 font-black text-sm">{game.claimStreak}x Streak!</span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Game abandoned popup ── */}
+      {game.gameAbandoned && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 backdrop-blur-sm p-4">
+          <div className="w-full max-w-sm rounded-3xl p-8 text-center shadow-2xl border border-yellow-700/30 animate-fade-in-up"
+            style={{ background: '#0d2018' }}>
+            <div className="text-6xl mb-4">😔</div>
+            <h2 className="text-2xl font-black text-white mb-2">Game Ended</h2>
+            <p className="text-slate-400 font-semibold text-sm mb-6">{game.gameAbandoned}</p>
+            <button
+              onClick={game.leaveRoom}
+              className="w-full py-3.5 rounded-2xl font-black text-slate-900 bg-yellow-400 hover:bg-yellow-300 active:scale-95 transition-all"
+            >
+              Exit Game
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex justify-between items-center mb-6">
           <div>
-            <h1 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight">
-              ⚡ Speed Card Match
-            </h1>
-            <p className="text-slate-400 mt-1">
-              Room <span className="font-mono font-semibold text-emerald-400">{game.roomCode}</span>
-              <span className="mx-2 text-slate-600">•</span>
-              You: <span className="font-semibold text-white">{playerName}</span>
+            <h1 className="text-3xl md:text-4xl font-black text-white tracking-tight">⚡ Speed Match</h1>
+            <p className="text-slate-400 mt-1 font-semibold flex items-center flex-wrap gap-x-1">
+              Room
+              <button
+                onClick={handleCopyCode}
+                className="font-mono font-black text-yellow-400 hover:text-yellow-300 transition-colors cursor-pointer"
+                title="Click to copy room code"
+              >
+                {game.roomCode}
+              </button>
+              {copiedCode && <span className="text-emerald-400 text-xs font-bold">✓ Copied!</span>}
+              <span className="text-slate-600 mx-1">·</span>
+              <span className="text-white">{playerName}</span>
+              <span className={`inline-block w-2 h-2 rounded-full ml-2 ${game.connected ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse-fast'}`} />
+              {!game.connected && <span className="text-amber-400 text-xs font-bold">Reconnecting</span>}
             </p>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={game.toggleMute}
-              title={game.muted ? 'Unmute' : 'Mute'}
-              className="px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-xl transition-all active:scale-95"
+              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-2xl border border-slate-700 transition-all active:scale-95"
             >
               {game.muted ? '🔇' : '🔊'}
             </button>
             <button
               onClick={game.leaveRoom}
-              className="px-5 py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl transition-all active:scale-95"
+              className="px-5 py-2.5 bg-rose-700 hover:bg-rose-600 text-white font-black rounded-2xl transition-all active:scale-95"
             >
               Leave
             </button>
           </div>
         </div>
 
-        {/* Messages */}
         {game.message && (
-          <div className="mb-5 p-3 rounded-xl bg-slate-800/80 ring-1 ring-white/10 text-slate-100 font-medium text-center">
+          <div className="mb-5 p-3 rounded-2xl bg-slate-800/80 border border-slate-700/50 text-slate-100 font-semibold text-center">
             {game.message}
           </div>
         )}
 
         {game.winner && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
-            <div className="w-full max-w-sm rounded-3xl bg-gradient-to-b from-amber-400 to-yellow-300 p-8 text-center shadow-2xl">
-              <div className="text-6xl mb-3">🏆</div>
-              <p className="text-3xl font-extrabold text-slate-900">{game.winner} WINS!</p>
-              <p className="text-slate-800 mt-2">{game.message}</p>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-4">
+            <div className="w-full max-w-sm rounded-3xl p-8 text-center shadow-2xl border border-yellow-500/40"
+              style={{ background: 'linear-gradient(145deg, #1a1a00, #2a2a00)' }}>
+              <div className="text-7xl mb-3">🏆</div>
+              <p className="text-4xl font-black text-yellow-400">{game.winner}</p>
+              <p className="text-white font-bold text-xl mt-1">WINS!</p>
+              <p className="text-slate-400 mt-2 font-semibold">{game.message}</p>
               <div className="mt-6 flex flex-col gap-3">
                 {isHost ? (
-                  <button
-                    onClick={game.restartGame}
-                    className="w-full py-3 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition-all shadow-lg"
-                  >
+                  <button onClick={game.restartGame} className="w-full py-3.5 rounded-2xl font-black text-slate-900 bg-yellow-400 hover:bg-yellow-300 active:scale-95 transition-all">
                     🔁 Play Again
                   </button>
                 ) : (
-                  <p className="text-slate-700 text-sm">Waiting for host to start a new game…</p>
+                  <p className="text-slate-500 text-sm font-semibold">Waiting for host to start a new game…</p>
                 )}
-                <button
-                  onClick={game.leaveRoom}
-                  className="w-full py-2.5 rounded-xl font-semibold text-slate-700 hover:text-slate-900"
-                >
+                <button onClick={game.leaveRoom} className="w-full py-2.5 text-slate-400 hover:text-white font-semibold text-sm">
                   Leave Room
                 </button>
               </div>
@@ -242,52 +374,49 @@ export default function Home() {
         )}
 
         {!game.gameStarted ? (
-          // Lobby
-          <div className="rounded-2xl bg-slate-800/80 ring-1 ring-white/10 shadow-xl p-8">
-            <h2 className="text-2xl font-bold mb-6 text-white">Game Lobby</h2>
+          <div className="rounded-3xl border border-[#1e3a25] shadow-xl p-8" style={{ background: '#0d2018' }}>
+            <h2 className="text-2xl font-black mb-6 text-white">Game Lobby</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <PlayerList players={game.players} currentPlayerName={game.currentPlayerName} />
-              <div className="rounded-2xl bg-slate-900/60 ring-1 ring-white/10 p-6 flex flex-col justify-center">
-                <p className="text-slate-300 mb-3">
-                  Players in room: <span className="font-bold text-white">{game.players.length}/4</span>
+              <div className="rounded-2xl border border-[#1e3a25] p-6 flex flex-col justify-center" style={{ background: '#091510' }}>
+                <p className="text-slate-300 mb-3 font-semibold">
+                  Players: <span className="font-black text-white">{game.players.length}/4</span>
                 </p>
-                <p className="text-slate-400 mb-6">
-                  Share this code so friends can join:
-                  <br />
-                  <span className="text-3xl font-mono font-extrabold text-emerald-400 tracking-[0.3em]">
-                    {game.roomCode}
-                  </span>
-                </p>
+                <div className="mb-5">
+                  <p className="text-slate-400 mb-1 font-semibold">Share this code:</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-3xl font-mono font-black text-yellow-400 tracking-[0.3em]">
+                      {game.roomCode}
+                    </span>
+                    <button
+                      onClick={handleCopyCode}
+                      className="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-700 hover:bg-slate-600 text-white transition-all active:scale-95"
+                    >
+                      {copiedCode ? '✓ Copied' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
                 {isHost && game.players.length >= 2 && (
                   <button
                     onClick={game.startGame}
-                    className="px-6 py-4 bg-gradient-to-b from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-white font-bold rounded-xl transition-all active:scale-95 shadow-lg shadow-emerald-900/40"
+                    className="px-6 py-4 bg-yellow-400 hover:bg-yellow-300 text-slate-900 font-black text-lg rounded-2xl transition-all active:scale-95 shadow-lg shadow-yellow-900/30"
                   >
                     🎮 Start Game
                   </button>
                 )}
                 {isHost && game.players.length < 2 && (
-                  <p className="text-slate-400 text-sm">Need at least 2 players to start…</p>
+                  <p className="text-slate-500 text-sm font-semibold">Need at least 2 players to start…</p>
                 )}
-                {!isHost && <p className="text-slate-400 text-sm">Waiting for host to start…</p>}
+                {!isHost && <p className="text-slate-500 text-sm font-semibold">Waiting for host to start…</p>}
               </div>
             </div>
           </div>
         ) : (
-          // Active Game
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
             <div className="lg:col-span-2 space-y-6">
-              <CurrentCall
-                currentCall={game.gameState?.currentCall || 2}
-                stackSize={game.stackSize}
-              />
-              <StackDisplay
-                stackSize={game.stackSize}
-                recentCard={game.recentCard}
-                claimActive={game.canClaim}
-              />
+              <CurrentCall currentCall={game.gameState?.currentCall || 2} stackSize={game.stackSize} />
+              <StackDisplay stackSize={game.stackSize} recentCard={game.recentCard} claimActive={game.canClaim} />
             </div>
-
             <div className="lg:col-span-2 space-y-6">
               <PlayerList players={game.players} currentPlayerName={game.currentPlayerName} />
               <GameBoard
@@ -305,6 +434,14 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      {/* Chat panel */}
+      <ChatPanel
+        messages={game.chatMessages}
+        onSend={handleSendChat}
+        myName={playerName}
+        accentColor="emerald"
+      />
     </div>
   );
 }

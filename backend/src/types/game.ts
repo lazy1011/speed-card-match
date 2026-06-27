@@ -44,6 +44,7 @@ export interface GameState {
 export interface JoinRoomRequest {
   playerName: string;
   roomCode?: string; // If joining existing room
+  gameMode?: 'speed-match' | 'bluff'; // Host sets this when creating
 }
 
 export interface JoinRoomResponse {

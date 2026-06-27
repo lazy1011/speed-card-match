@@ -31,6 +31,20 @@ export interface GameState {
   eliminatedPlayers: string[];
 }
 
+// Bluff game types
+export interface BluffPlayer {
+  id: string;
+  name: string;
+  handSize: number;
+  isActive: boolean;
+}
+
+export interface BluffLastPlay {
+  playerName: string;
+  claimedRank: CardValue;
+  claimedCount: number;
+}
+
 // Game events
 export interface GameEvent {
   type:

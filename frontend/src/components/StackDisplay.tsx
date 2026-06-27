@@ -8,11 +8,10 @@ import CardDisplay from './CardDisplay';
 interface StackDisplayProps {
   stackSize: number;
   recentCard?: Card | null;
-  claimActive?: boolean; // Claim race is open → pulse/glow the felt
+  claimActive?: boolean;
 }
 
 export default function StackDisplay({ stackSize, recentCard, claimActive }: StackDisplayProps) {
-  // Bump a key every time a new card is drawn so the CSS animation re-fires.
   const [dealKey, setDealKey] = useState(0);
   const [glow, setGlow] = useState(false);
   const prevStackSize = useRef(stackSize);
@@ -22,7 +21,6 @@ export default function StackDisplay({ stackSize, recentCard, claimActive }: Sta
   }, [recentCard]);
 
   useEffect(() => {
-    // Stack dropped to 0 → it was just claimed. Flash the glow.
     let timer: ReturnType<typeof setTimeout> | undefined;
     if (prevStackSize.current > 0 && stackSize === 0) {
       setGlow(true);
@@ -34,7 +32,6 @@ export default function StackDisplay({ stackSize, recentCard, claimActive }: Sta
     };
   }, [stackSize]);
 
-  // Faint face-down pile behind the top card; depth grows with the stack.
   const pileDepth = Math.min(Math.max(stackSize - 1, 0), 4);
 
   return (
@@ -54,7 +51,6 @@ export default function StackDisplay({ stackSize, recentCard, claimActive }: Sta
       )}
 
       <div className="relative w-32 h-44 mb-4">
-        {/* Stacked pile of face-down cards behind the top card */}
         {Array.from({ length: pileDepth }).map((_, i) => (
           <img
             key={i}
@@ -67,7 +63,6 @@ export default function StackDisplay({ stackSize, recentCard, claimActive }: Sta
           />
         ))}
 
-        {/* Top card: real face, dealt + flipped in */}
         {recentCard ? (
           <div key={dealKey} className="absolute inset-0 animate-card-deal">
             <div className="animate-card-flip">

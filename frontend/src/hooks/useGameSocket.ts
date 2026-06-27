@@ -6,6 +6,15 @@ import { GameState, Player, Card, CardValue, GameEvent } from '@/types/game';
 import { sfx, initAudioUnlock, setMuted as setSfxMuted } from '@/utils/sounds';
 import { preloadCardImages } from '@/utils/cardUtils';
 
+export interface ChatMessage {
+  id: string;
+  playerName: string;
+  text: string;
+  timestamp: number;
+}
+
+function uid() { return Math.random().toString(36).slice(2, 10); }
+
 export const useGameSocket = () => {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [connected, setConnected] = useState(false);
@@ -18,12 +27,24 @@ export const useGameSocket = () => {
   const [message, setMessage] = useState<string>('');
   const [winner, setWinner] = useState<string | null>(null);
   const [recentCard, setRecentCard] = useState<Card | null>(null);
-  const [stackSize, setStackSize] = useState(0); // Cards currently on the table
-  const [canClaim, setCanClaim] = useState(false); // Claim race open?
-  const [claimEndsAt, setClaimEndsAt] = useState<number | null>(null); // Countdown deadline (ms epoch)
+  const [stackSize, setStackSize] = useState(0);
+  const [canClaim, setCanClaim] = useState(false);
+  const [claimEndsAt, setClaimEndsAt] = useState<number | null>(null);
   const [lastClaimedBy, setLastClaimedBy] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
+  const [playerLeft, setPlayerLeft] = useState<string | null>(null);
+  const [gameAbandoned, setGameAbandoned] = useState<string | null>(null);
+  const [reconnecting, setReconnecting] = useState(false);
+
+  // New feature state
+  const [reactionTimeMs, setReactionTimeMs] = useState<number | null>(null);
+  const [claimStreak, setClaimStreak] = useState(0);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+
   const socketRef = useRef<Socket | null>(null);
+  const playerLeftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const matchAvailableAtRef = useRef<number | null>(null);
+  const reactionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const toggleMute = useCallback(() => {
     setMuted((m) => {
@@ -32,7 +53,6 @@ export const useGameSocket = () => {
     });
   }, []);
 
-  // Map backend player summaries to the client Player shape.
   const mapPlayers = (arr: any[]): Player[] =>
     (arr || []).map((p, idx) => ({
       id: p.id ?? `player-${idx}`,
@@ -45,7 +65,6 @@ export const useGameSocket = () => {
       cardCount: p.cardCount ?? 0,
     }));
 
-  // Initialize socket connection
   useEffect(() => {
     initAudioUnlock();
     preloadCardImages();
@@ -63,12 +82,16 @@ export const useGameSocket = () => {
     newSocket.on('connect', () => {
       console.log('[Socket] Connected:', newSocket.id);
       setConnected(true);
+      setReconnecting(false);
     });
 
     newSocket.on('disconnect', () => {
       console.log('[Socket] Disconnected');
       setConnected(false);
+      setReconnecting(true);
     });
+
+    newSocket.on('reconnect_failed', () => setReconnecting(false));
 
     newSocket.on('ROOM_UPDATED', (roomInfo: any) => {
       console.log('[Socket] Room updated:', roomInfo);
@@ -81,7 +104,7 @@ export const useGameSocket = () => {
           claimedCards: [],
           isActive: true,
           turnOrder: idx,
-          cardCount: 13, // Placeholder
+          cardCount: 13,
         }))
       );
     });
@@ -94,11 +117,14 @@ export const useGameSocket = () => {
       if (data.players) setPlayers(mapPlayers(data.players));
       setCurrentPlayerName(data.currentPlayerName);
       setCurrentPlayerId(data.currentPlayerId ?? null);
-      // Reset round state (also handles Play Again).
       setWinner(null);
       setRecentCard(null);
       setCanClaim(false);
       setClaimEndsAt(null);
+      setReactionTimeMs(null);
+      setClaimStreak(0);
+      setChatMessages([]);
+      matchAvailableAtRef.current = null;
       setMessage('Game started! Get ready!');
       sfx.shuffle();
     });
@@ -119,6 +145,7 @@ export const useGameSocket = () => {
 
     newSocket.on('MATCH_AVAILABLE', (data: any) => {
       console.log('[Socket] Match available — claim race open:', data);
+      matchAvailableAtRef.current = Date.now();
       setCanClaim(true);
       setLastClaimedBy(null);
       if (typeof data.stackSize === 'number') setStackSize(data.stackSize);
@@ -131,6 +158,7 @@ export const useGameSocket = () => {
       console.log('[Socket] Match expired:', data);
       setCanClaim(false);
       setClaimEndsAt(null);
+      matchAvailableAtRef.current = null;
       if (typeof data.stackSize === 'number') setStackSize(data.stackSize);
       if (data.players) setPlayers(mapPlayers(data.players));
       setCurrentPlayerName(data.currentPlayerName);
@@ -154,21 +182,16 @@ export const useGameSocket = () => {
       setCurrentPlayerName(data.currentPlayerName);
       setCurrentPlayerId(data.currentPlayerId ?? null);
       setGameState((prev) =>
-        prev
-          ? {
-              ...prev,
-              currentPlayerIndex: data.currentPlayerIndex,
-            }
-          : null
+        prev ? { ...prev, currentPlayerIndex: data.currentPlayerIndex } : null
       );
     });
 
     newSocket.on('STACK_CLAIMED', (data: any) => {
       console.log('[Socket] Stack claimed:', data);
-      setCanClaim(false); // Race is over
+      setCanClaim(false);
       setClaimEndsAt(null);
       setLastClaimedBy(data.playerName || null);
-      setRecentCard(null); // Clear the table
+      setRecentCard(null);
       if (typeof data.newStackSize === 'number') setStackSize(data.newStackSize);
       else setStackSize(0);
       if (data.players) setPlayers(mapPlayers(data.players));
@@ -176,14 +199,23 @@ export const useGameSocket = () => {
         `${data.playerName} grabbed ${data.cardsWon} cards! Next call: ${data.nextCall}`
       );
       setGameState((prev) =>
-        prev
-          ? {
-              ...prev,
-              currentCall: data.nextCall,
-            }
-          : null
+        prev ? { ...prev, currentCall: data.nextCall } : null
       );
       sfx.claim();
+
+      // Reaction time and streak tracking
+      const myId = socketRef.current?.id;
+      if (myId && data.claimerId === myId && matchAvailableAtRef.current !== null) {
+        const rt = Date.now() - matchAvailableAtRef.current;
+        setReactionTimeMs(rt);
+        setClaimStreak(s => s + 1);
+        // Clear reaction time badge after 4s
+        if (reactionTimerRef.current) clearTimeout(reactionTimerRef.current);
+        reactionTimerRef.current = setTimeout(() => setReactionTimeMs(null), 4000);
+      } else if (data.claimerId !== (socketRef.current?.id)) {
+        setClaimStreak(0);
+      }
+      matchAvailableAtRef.current = null;
     });
 
     newSocket.on('PLAYER_ELIMINATED', (data: any) => {
@@ -200,19 +232,37 @@ export const useGameSocket = () => {
 
     newSocket.on('PLAYER_DISCONNECTED', (data: any) => {
       console.log('[Socket] Player disconnected:', data);
-      setMessage('A player disconnected!');
+      const name = data?.playerName ?? 'A player';
+      setMessage(`${name} disconnected.`);
+      if (playerLeftTimerRef.current) clearTimeout(playerLeftTimerRef.current);
+      setPlayerLeft(name);
+      playerLeftTimerRef.current = setTimeout(() => setPlayerLeft(null), 5000);
+    });
+
+    newSocket.on('GAME_ABANDONED', (data: any) => {
+      setGameAbandoned(data?.reason ?? 'Not enough players to continue.');
+    });
+
+    newSocket.on('CHAT_MESSAGE', (data: any) => {
+      const msg: ChatMessage = {
+        id: data.id ?? uid(),
+        playerName: data.playerName,
+        text: data.text,
+        timestamp: data.timestamp ?? Date.now(),
+      };
+      setChatMessages(prev => [...prev.slice(-199), msg]);
     });
 
     return () => {
+      if (playerLeftTimerRef.current) clearTimeout(playerLeftTimerRef.current);
+      if (reactionTimerRef.current) clearTimeout(reactionTimerRef.current);
       newSocket.close();
     };
   }, []);
 
-  // Join room
   const joinRoom = useCallback(
     (playerName: string, joinCode?: string) => {
       if (!socketRef.current) return;
-
       socketRef.current.emit('JOIN_ROOM', { playerName, roomCode: joinCode }, (response: any) => {
         console.log('[Socket] Join response:', response);
         if (response.success) {
@@ -226,53 +276,32 @@ export const useGameSocket = () => {
     []
   );
 
-  // Start game
   const startGame = useCallback(() => {
     if (!socketRef.current || !roomCode) return;
-
     socketRef.current.emit('START_GAME', { roomCode }, (result: any) => {
       console.log('[Socket] Start game result:', result);
-      if (!result.success) {
-        setMessage(`Error: ${result.message}`);
-      }
+      if (!result.success) setMessage(`Error: ${result.message}`);
     });
   }, [roomCode]);
 
-  // Draw card
   const drawCard = useCallback(() => {
     if (!socketRef.current || !roomCode) return;
-
     const playerId = socketRef.current.id;
-    socketRef.current.emit(
-      'DRAW_CARD',
-      { roomCode, playerId },
-      (response: any) => {
-        console.log('[Socket] Draw card response:', response);
-        if (!response.success) {
-          setMessage(`Error: ${response.message}`);
-        }
-      }
-    );
+    socketRef.current.emit('DRAW_CARD', { roomCode, playerId }, (response: any) => {
+      console.log('[Socket] Draw card response:', response);
+      if (!response.success) setMessage(`Error: ${response.message}`);
+    });
   }, [roomCode]);
 
-  // Claim stack
   const claimStack = useCallback(() => {
     if (!socketRef.current || !roomCode) return;
-
     const playerId = socketRef.current.id;
-    socketRef.current.emit(
-      'CLAIM_STACK',
-      { roomCode, playerId, timestamp: Date.now() },
-      (response: any) => {
-        console.log('[Socket] Claim stack response:', response);
-        if (!response.success) {
-          setMessage(`Error: ${response.message}`);
-        }
-      }
-    );
+    socketRef.current.emit('CLAIM_STACK', { roomCode, playerId, timestamp: Date.now() }, (response: any) => {
+      console.log('[Socket] Claim stack response:', response);
+      if (!response.success) setMessage(`Error: ${response.message}`);
+    });
   }, [roomCode]);
 
-  // Restart game (host only) — Play Again
   const restartGame = useCallback(() => {
     if (!socketRef.current || !roomCode) return;
     socketRef.current.emit('RESTART_GAME', { roomCode }, (result: any) => {
@@ -280,16 +309,29 @@ export const useGameSocket = () => {
     });
   }, [roomCode]);
 
-  // Leave room
   const leaveRoom = useCallback(() => {
     if (!socketRef.current || !roomCode) return;
-
     const playerId = socketRef.current.id;
     socketRef.current.emit('LEAVE_ROOM', { roomCode, playerId });
     setRoomCode(null);
     setGameStarted(false);
     setWinner(null);
+    setGameAbandoned(null);
+    setPlayerLeft(null);
+    setReactionTimeMs(null);
+    setClaimStreak(0);
+    setChatMessages([]);
     setMessage('Left the room');
+  }, [roomCode]);
+
+  const sendChat = useCallback((text: string, playerName: string) => {
+    if (!socketRef.current || !roomCode) return;
+    socketRef.current.emit('SEND_CHAT', { roomCode, text, playerName });
+  }, [roomCode]);
+
+  const sendReaction = useCallback((emoji: string, playerName: string) => {
+    if (!socketRef.current || !roomCode) return;
+    socketRef.current.emit('SEND_REACTION', { roomCode, emoji, playerName });
   }, [roomCode]);
 
   return {
@@ -310,6 +352,13 @@ export const useGameSocket = () => {
     claimEndsAt,
     lastClaimedBy,
     muted,
+    reconnecting,
+    playerLeft,
+    gameAbandoned,
+    // New features
+    reactionTimeMs,
+    claimStreak,
+    chatMessages,
     toggleMute,
     joinRoom,
     startGame,
@@ -317,5 +366,7 @@ export const useGameSocket = () => {
     drawCard,
     claimStack,
     leaveRoom,
+    sendChat,
+    sendReaction,
   };
 };

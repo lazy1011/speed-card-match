@@ -25,7 +25,6 @@ export default function GameBoard({
   claimEndsAt,
   isCurrentPlayer,
 }: GameBoardProps) {
-  // Live countdown (seconds remaining) for the claim window.
   const [secondsLeft, setSecondsLeft] = useState(0);
 
   useEffect(() => {
@@ -87,7 +86,6 @@ export default function GameBoard({
               <span className="relative z-10">
                 🎯 CLAIM!{canClaim && secondsLeft > 0 ? ` ${secondsLeft.toFixed(1)}s` : ''}
               </span>
-              {/* Countdown bar drains across the button while the race is open */}
               {canClaim && claimEndsAt && (
                 <span
                   key={claimEndsAt}

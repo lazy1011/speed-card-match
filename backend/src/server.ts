@@ -11,19 +11,18 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
-// CORS configuration
+// CORS configuration — accept any origin (public game, no sensitive data)
 const io = new Server(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: true,
     methods: ['GET', 'POST'],
     credentials: true,
   },
   transports: ['websocket', 'polling'],
 });
 
-// Middleware — match Socket.io's CORS origin so preflight requests also pass.
-const corsOrigin = process.env.FRONTEND_URL || 'http://localhost:3000';
-app.use(cors({ origin: corsOrigin, credentials: true }));
+// Middleware
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
 // Room manager instance

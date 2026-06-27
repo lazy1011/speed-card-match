@@ -20,12 +20,15 @@ export class Deck {
     const distributions: Card[][] = [];
 
     for (let i = 0; i < numPlayers; i++) {
-      const playerCards = this.cards.splice(0, cardsPerPlayer);
-      distributions.push(playerCards);
+      distributions.push(this.cards.splice(0, cardsPerPlayer));
     }
-
-    // Any remaining cards go back to the pile (unlikely with 2-4 players)
+    // Remaining cards stay in this.cards as the kitty (accessible via getLeftover)
     return distributions;
+  }
+
+  /** Returns leftover cards after equal distribution (call after distributeEquallyToPlayers). */
+  getLeftover(): Card[] {
+    return [...this.cards];
   }
 
   /**

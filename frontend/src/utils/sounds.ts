@@ -96,6 +96,47 @@ function noise(opts: {
 }
 
 export const sfx = {
+  cardPick(selecting: boolean) {
+    // Crisp tick up when selecting, soft tick down when deselecting
+    if (selecting) {
+      noise({ duration: 0.05, gain: 0.22, filterFreq: 4000, filterType: 'bandpass' });
+      tone({ freq: 1100, type: 'triangle', duration: 0.07, gain: 0.1, slideTo: 800 });
+    } else {
+      noise({ duration: 0.04, gain: 0.14, filterFreq: 2500, filterType: 'bandpass' });
+      tone({ freq: 650, type: 'triangle', duration: 0.06, gain: 0.08, slideTo: 420 });
+    }
+  },
+  cardPlay() {
+    // Whoosh + thud — UNO-style spin to pile
+    noise({ duration: 0.18, gain: 0.28, filterFreq: 3500, filterType: 'highpass' });
+    noise({ duration: 0.14, gain: 0.18, filterFreq: 900, filterType: 'lowpass', delay: 0.12 });
+    tone({ freq: 110, type: 'sine', duration: 0.1, gain: 0.1, delay: 0.14 });
+  },
+  skip() {
+    // Short descending tick
+    tone({ freq: 440, type: 'triangle', duration: 0.08, gain: 0.1, slideTo: 300 });
+  },
+  bluffCaught() {
+    // Dramatic reveal — high sting then crash
+    tone({ freq: 880, type: 'sawtooth', duration: 0.1, gain: 0.18 });
+    tone({ freq: 660, type: 'sawtooth', duration: 0.15, gain: 0.16, delay: 0.08 });
+    noise({ duration: 0.3, gain: 0.15, filterFreq: 600, filterType: 'lowpass', delay: 0.18 });
+  },
+  legitPlay() {
+    // Calm rising confirm
+    tone({ freq: 523, type: 'triangle', duration: 0.12, gain: 0.14 });
+    tone({ freq: 659, type: 'triangle', duration: 0.14, gain: 0.14, delay: 0.1 });
+  },
+  seriesDiscard() {
+    // Soft descending sweep
+    tone({ freq: 400, type: 'sine', duration: 0.35, gain: 0.12, slideTo: 180 });
+  },
+  rankPicked() {
+    // Short upward chime — new series starting
+    tone({ freq: 600, type: 'triangle', duration: 0.1, gain: 0.14 });
+    tone({ freq: 800, type: 'triangle', duration: 0.12, gain: 0.16, delay: 0.08 });
+    tone({ freq: 1000, type: 'triangle', duration: 0.14, gain: 0.14, delay: 0.16 });
+  },
   draw() {
     // Quick upward swish.
     noise({ duration: 0.18, gain: 0.18, filterFreq: 1800, filterType: 'highpass' });
