@@ -6,13 +6,17 @@ import { sfx } from '@/utils/sounds';
 
 interface HandDisplayProps {
   cards: Card[];
-  selectedIndices: number[];
+  selectedIndices: number[];   // display-position indices
   onToggle: (index: number) => void;
+  onSort?: () => void;
+  isSorted?: boolean;
   disabled: boolean;
   playAnim?: boolean;
 }
 
-export default function HandDisplay({ cards, selectedIndices, onToggle, disabled, playAnim }: HandDisplayProps) {
+export default function HandDisplay({
+  cards, selectedIndices, onToggle, onSort, isSorted, disabled, playAnim,
+}: HandDisplayProps) {
   const sel = new Set(selectedIndices);
 
   return (
@@ -20,6 +24,18 @@ export default function HandDisplay({ cards, selectedIndices, onToggle, disabled
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-white font-black text-base">Your Hand</h3>
         <div className="flex items-center gap-2">
+          {onSort && cards.length > 1 && (
+            <button
+              onClick={onSort}
+              className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all active:scale-95 border ${
+                isSorted
+                  ? 'bg-emerald-700/60 border-emerald-500/60 text-emerald-200 hover:bg-emerald-600/60'
+                  : 'bg-slate-700/60 border-slate-600/40 text-slate-300 hover:bg-slate-600'
+              }`}
+            >
+              {isSorted ? '↕ Sorted' : '↕ Sort'}
+            </button>
+          )}
           <span className="text-slate-500 text-sm font-semibold">{cards.length} cards</span>
           {sel.size > 0 && !playAnim && (
             <span className="px-2.5 py-0.5 rounded-full bg-yellow-400 text-slate-900 text-xs font-black">

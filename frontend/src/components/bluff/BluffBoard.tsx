@@ -72,10 +72,15 @@ export default function BluffBoard({
   pileTransfer, turnEndsAt, onPlayCards, onSkipTurn, onCallBluff, onSetSeriesRank,
   onSendReaction,
 }: BluffBoardProps) {
+  // selectedIndices stores DISPLAY positions (0..displayedCards.length-1)
   const [selectedIndices, setSelectedIndices] = useState<number[]>([]);
   const [playAnim, setPlayAnim] = useState(false);
   const [pileAnim, setPileAnim] = useState<'receive' | 'take' | null>(null);
   const [rankPickerVisible, setRankPickerVisible] = useState(false);
+
+  // Sort state: handDisplayOrder[displayPos] = originalIndex into myHand
+  const [handDisplayOrder, setHandDisplayOrder] = useState<number[]>([]);
+  const [isSorted, setIsSorted] = useState(false);
 
   const isMyTurn = !!myId && myId === currentPlayerId;
   const isMyRankPick = waitingForRankPick && !!myId && myId === rankPickStarterId;
@@ -83,10 +88,23 @@ export default function BluffBoard({
   const canSkip = isMyTurn && !bluffWindowOpen && !waitingForRankPick;
   const canPlay = isMyTurn && !waitingForRankPick && !!currentSeriesRank && selectedIndices.length > 0;
 
+  // Reset display order + selection whenever a new hand arrives from the server
+  useEffect(() => {
+    const order = myHand.map((_, i) => i);
+    setHandDisplayOrder(order);
+    setSelectedIndices([]);
+    setIsSorted(false);
+  }, [myHand]);
+
+  // Clear selection when it's no longer our turn
+  useEffect(() => {
+    if (!isMyTurn) setSelectedIndices([]);
+  }, [isMyTurn]);
+
   useEffect(() => {
     if (!waitingForRankPick) { setRankPickerVisible(false); return; }
-    const t = setTimeout(() => setRankPickerVisible(true), 2500);
-    return () => clearTimeout(t);
+    // Show rank picker immediately (no delay) so user can look at hand while picking
+    setRankPickerVisible(true);
   }, [waitingForRankPick]);
 
   useEffect(() => {
@@ -105,15 +123,33 @@ export default function BluffBoard({
     }
   }, [pileTransfer]);
 
-  useEffect(() => {
-    if (!isMyTurn) setSelectedIndices([]);
-  }, [isMyTurn]);
+  // Cards to display (in sorted order if active)
+  const displayedCards: Card[] = handDisplayOrder.length === myHand.length
+    ? handDisplayOrder.map(i => myHand[i])
+    : myHand;
 
-  const handleToggle = (i: number) => {
+  const handleToggle = (displayPos: number) => {
     if (!isMyTurn || waitingForRankPick) return;
-    setSelectedIndices((prev) =>
-      prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i]
+    setSelectedIndices(prev =>
+      prev.includes(displayPos) ? prev.filter(x => x !== displayPos) : [...prev, displayPos]
     );
+  };
+
+  const handleSortHand = () => {
+    if (myHand.length === 0) return;
+    setSelectedIndices([]); // clear selection on sort
+    if (isSorted) {
+      // restore original server order
+      setHandDisplayOrder(myHand.map((_, i) => i));
+      setIsSorted(false);
+    } else {
+      // sort by value ascending (2 → A)
+      const sorted = [...Array(myHand.length).keys()].sort(
+        (a, b) => myHand[a].value - myHand[b].value
+      );
+      setHandDisplayOrder(sorted);
+      setIsSorted(true);
+    }
   };
 
   const handlePlay = () => {
@@ -121,9 +157,10 @@ export default function BluffBoard({
     sfx.cardPlay();
     setPlayAnim(true);
     const rank = currentSeriesRank;
-    const indices = [...selectedIndices];
+    // Convert display positions → original server indices before sending
+    const originalIndices = selectedIndices.map(dp => handDisplayOrder[dp] ?? dp);
     setTimeout(() => {
-      onPlayCards(indices, rank, indices.length);
+      onPlayCards(originalIndices, rank, originalIndices.length);
       setSelectedIndices([]);
       setPlayAnim(false);
     }, 500);
@@ -131,7 +168,7 @@ export default function BluffBoard({
 
   return (
     <div className="space-y-4">
-      {/* Rank picker modal */}
+      {/* ── Rank picker: inline (not fullscreen) so hand is visible below ── */}
       {isMyRankPick && rankPickerVisible && (
         <RankPickerModal
           starterName="You"
@@ -140,18 +177,11 @@ export default function BluffBoard({
         />
       )}
 
-      {/* Waiting for rank */}
+      {/* Waiting for another player to pick rank */}
       {waitingForRankPick && !isMyRankPick && (
         <div className="rounded-2xl bg-amber-900/20 border border-amber-700/30 p-3 text-center">
           <p className="text-amber-300 font-semibold text-sm">
             Waiting for <span className="text-white font-black">{rankPickStarterName}</span> to set the next rank…
-          </p>
-        </div>
-      )}
-      {waitingForRankPick && isMyRankPick && !rankPickerVisible && (
-        <div className="rounded-2xl bg-emerald-900/20 border border-emerald-700/30 p-3 text-center animate-fade-in-up">
-          <p className="text-emerald-300 font-semibold text-sm">
-            <span className="text-white font-black">You</span> get to pick the next rank — modal opening soon…
           </p>
         </div>
       )}
@@ -239,9 +269,11 @@ export default function BluffBoard({
           pileAnim={pileAnim}
         />
         <HandDisplay
-          cards={myHand}
+          cards={displayedCards}
           selectedIndices={selectedIndices}
           onToggle={handleToggle}
+          onSort={handleSortHand}
+          isSorted={isSorted}
           disabled={!isMyTurn || waitingForRankPick}
           playAnim={playAnim}
         />
