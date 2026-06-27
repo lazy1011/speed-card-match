@@ -9,7 +9,5 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 10000
       - key: FRONTEND_URL
-        fromGroup: speed-card-match
+        value: https://frontend-epwl7yo92-lazy1011s-projects.vercel.app
