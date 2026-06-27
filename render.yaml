@@ -1,7 +1,7 @@
 services:
   - type: web
     name: speed-card-backend
-    runtime: node
+    env: node
     buildCommand: cd backend && npm install && npm run build
     startCommand: node backend/dist/server.js
     plan: free
