@@ -38,6 +38,12 @@ export function setupGameEvents(io: Server, roomManager: RoomManager) {
   const bluffWindowTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const bluffTurnTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+  // Reconnect grace period: key = `${roomCode}:${playerName}`
+  const reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const pendingReconnects = new Map<string, { oldPlayerId: string; roomCode: string; playerName: string }>();
+
+  const RECONNECT_GRACE_MS = 60_000; // 1 minute
+
   function clearClaimTimer(roomCode: string) {
     const t = claimTimers.get(roomCode);
     if (t) { clearTimeout(t); claimTimers.delete(roomCode); }
@@ -51,6 +57,11 @@ export function setupGameEvents(io: Server, roomManager: RoomManager) {
   function clearBluffTurnTimer(roomCode: string) {
     const t = bluffTurnTimers.get(roomCode);
     if (t) { clearTimeout(t); bluffTurnTimers.delete(roomCode); }
+  }
+
+  function clearReconnectTimer(key: string) {
+    const t = reconnectTimers.get(key);
+    if (t) { clearTimeout(t); reconnectTimers.delete(key); }
   }
 
   function startBluffTurnTimer(roomCode: string) {
@@ -184,6 +195,51 @@ export function setupGameEvents(io: Server, roomManager: RoomManager) {
       const playerName = data.playerName || `Player${Math.random().toString(36).substring(7)}`;
 
       let roomCode = data.roomCode;
+
+      // ── Reconnect path: player returning within grace period ─────────────
+      if (roomCode) {
+        const reconnectKey = `${roomCode}:${playerName}`;
+        const pending = pendingReconnects.get(reconnectKey);
+        if (pending) {
+          clearReconnectTimer(reconnectKey);
+          pendingReconnects.delete(reconnectKey);
+
+          const { oldPlayerId } = pending;
+
+          // New socket adopts the old player ID so all game logic keeps working
+          socket.join(roomCode);
+          socket.join(oldPlayerId); // io.to(oldPlayerId) now reaches this socket
+          (socket.data as any).roomCode = roomCode;
+          (socket.data as any).playerId = oldPlayerId;
+
+          // Re-send full game state so the reconnected client rebuilds its UI
+          const gameMode = roomManager.getGameMode(roomCode);
+          if (gameMode === 'bluff') {
+            const bluffLogic = roomManager.getBluffLogic(roomCode);
+            if (bluffLogic) {
+              socket.emit('BLUFF_GAME_STARTED', {
+                players: bluffLogic.getPlayerSummaries(),
+                currentPlayerId: bluffLogic.getCurrentPlayer()?.id,
+                currentPlayerName: bluffLogic.getCurrentPlayer()?.name,
+                pileSize: bluffLogic.getPileSize(),
+                seriesRank: bluffLogic.getCurrentSeriesRank(),
+                kittySize: bluffLogic.getKittySize(),
+              });
+              socket.emit('MY_HAND', { cards: bluffLogic.getHandForPlayer(oldPlayerId) });
+
+              // Resume turn timer only if it's this player's turn
+              if (bluffLogic.getCurrentPlayer()?.id === oldPlayerId) {
+                startBluffTurnTimer(roomCode);
+              }
+            }
+          }
+
+          io.to(roomCode).emit('PLAYER_RECONNECTED', { playerId: oldPlayerId, playerName });
+          callback({ success: true, roomCode, players: [] });
+          console.log(`[Socket] ${playerName} reconnected to room ${roomCode}`);
+          return;
+        }
+      }
 
       // If no room code, create new room
       if (!roomCode) {
@@ -786,6 +842,11 @@ export function setupGameEvents(io: Server, roomManager: RoomManager) {
       const playerName = playerIdx >= 0 ? (roomInfo!.playerNames[playerIdx] ?? 'A player') : 'A player';
       const wasActive = roomInfo?.status === 'active';
 
+      // Cancel any pending reconnect grace timer for this player
+      const reconnectKey = `${roomCode}:${playerName}`;
+      clearReconnectTimer(reconnectKey);
+      pendingReconnects.delete(reconnectKey);
+
       const result = roomManager.removePlayerFromRoom(roomCode, playerId);
       socket.leave(roomCode);
 
@@ -816,6 +877,7 @@ export function setupGameEvents(io: Server, roomManager: RoomManager) {
 
     /**
      * Handle disconnect (network loss / closed tab)
+     * Active-game disconnects get a 60-second grace period before removal.
      */
     socket.on('disconnect', () => {
       const roomCode = (socket.data as any).roomCode;
@@ -827,23 +889,58 @@ export function setupGameEvents(io: Server, roomManager: RoomManager) {
         const playerName = playerIdx >= 0 ? (roomInfo!.playerNames[playerIdx] ?? 'A player') : 'A player';
         const wasActive = roomInfo?.status === 'active';
 
-        clearBluffTurnTimer(roomCode);
-        const result = roomManager.removePlayerFromRoom(roomCode, playerId);
-
-        if (result.roomExists) {
-          const updated = roomManager.getRoomInfo(roomCode);
-          io.to(roomCode).emit('PLAYER_DISCONNECTED', {
-            playerId,
-            playerName,
-            remainingCount: updated?.playerCount ?? 0,
-          });
-          if (wasActive && (updated?.playerCount ?? 0) <= 1) {
-            io.to(roomCode).emit('GAME_ABANDONED', {
-              reason: `${playerName} disconnected — not enough players to continue.`,
-            });
+        if (wasActive) {
+          // Only pause the turn timer if it's this player's turn
+          const bluffLogic = roomManager.getBluffLogic(roomCode);
+          if (bluffLogic?.getCurrentPlayer()?.id === playerId) {
+            clearBluffTurnTimer(roomCode);
           }
+
+          const reconnectKey = `${roomCode}:${playerName}`;
+          pendingReconnects.set(reconnectKey, { oldPlayerId: playerId, roomCode, playerName });
+          io.to(roomCode).emit('PLAYER_RECONNECTING', { playerId, playerName });
+          console.log(`[Socket] ${playerName} disconnected — 60s grace period started (room ${roomCode})`);
+
+          const timer = setTimeout(() => {
+            reconnectTimers.delete(reconnectKey);
+            pendingReconnects.delete(reconnectKey);
+
+            clearBluffTurnTimer(roomCode);
+            const result = roomManager.removePlayerFromRoom(roomCode, playerId);
+
+            if (result.roomExists) {
+              const updated = roomManager.getRoomInfo(roomCode);
+              io.to(roomCode).emit('PLAYER_DISCONNECTED', {
+                playerId,
+                playerName,
+                remainingCount: updated?.playerCount ?? 0,
+              });
+              if ((updated?.playerCount ?? 0) <= 1) {
+                io.to(roomCode).emit('GAME_ABANDONED', {
+                  reason: `${playerName} disconnected — not enough players to continue.`,
+                });
+              }
+            } else {
+              clearClaimTimer(roomCode);
+              clearBluffTimer(roomCode);
+            }
+            console.log(`[Socket] ${playerName} grace period expired — removed from room ${roomCode}`);
+          }, RECONNECT_GRACE_MS);
+
+          reconnectTimers.set(reconnectKey, timer);
+        } else {
+          // Not in an active game — remove immediately (lobby disconnect)
+          clearBluffTurnTimer(roomCode);
+          const result = roomManager.removePlayerFromRoom(roomCode, playerId);
+          if (result.roomExists) {
+            const updated = roomManager.getRoomInfo(roomCode);
+            io.to(roomCode).emit('ROOM_UPDATED', updated);
+          } else {
+            clearClaimTimer(roomCode);
+            clearBluffTimer(roomCode);
+          }
+          console.log(`[Socket] ${playerName} disconnected from room ${roomCode}`);
         }
-        console.log(`[Socket] ${playerName} disconnected from room ${roomCode}`);
       }
     });
   });

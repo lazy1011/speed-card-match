@@ -17,12 +17,23 @@ export default function BluffPage() {
   const [showWakeUp, setShowWakeUp] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [sharedLink, setSharedLink] = useState(false);
 
   useEffect(() => {
     if (game.connected) { setShowWakeUp(false); return; }
     const t = setTimeout(() => setShowWakeUp(true), 2000);
     return () => clearTimeout(t);
   }, [game.connected]);
+
+  // Auto-fill join code from ?code= URL param
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    if (code) {
+      setJoinCode(code.toUpperCase().slice(0, 6));
+      setShowJoinInput(true);
+    }
+  }, []);
 
   const handleCreateRoom = () => {
     if (!playerName.trim()) { alert('Please enter your name'); return; }
@@ -43,6 +54,19 @@ export default function BluffPage() {
       setCopiedCode(true);
       setTimeout(() => setCopiedCode(false), 2000);
     });
+  }, [game.roomCode]);
+
+  const handleShareLink = useCallback(() => {
+    if (!game.roomCode) return;
+    const url = `${window.location.origin}/bluff?code=${game.roomCode}`;
+    if (navigator.share) {
+      navigator.share({ title: 'Join my Bluff game!', text: `Room code: ${game.roomCode}`, url });
+    } else {
+      navigator.clipboard.writeText(url).then(() => {
+        setSharedLink(true);
+        setTimeout(() => setSharedLink(false), 2000);
+      });
+    }
   }, [game.roomCode]);
 
   const handleSendReaction = useCallback((emoji: string) => {
@@ -265,6 +289,13 @@ export default function BluffPage() {
           </div>
           <div className="flex items-center gap-2">
             <button
+              onClick={handleShareLink}
+              className="px-3 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-2xl border border-slate-700 transition-all active:scale-95 text-sm"
+              title="Share game link"
+            >
+              {sharedLink ? '✓' : '🔗'}
+            </button>
+            <button
               onClick={game.toggleMute}
               className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-2xl border border-slate-700 transition-all active:scale-95"
             >
@@ -353,16 +384,22 @@ export default function BluffPage() {
                   Players: <span className="font-black text-white">{game.players.length}/6</span>
                 </p>
                 <div className="mb-4">
-                  <p className="text-slate-500 text-sm font-semibold mb-1">Share this code:</p>
-                  <div className="flex items-center gap-2">
-                    <p className="text-3xl font-mono font-black text-rose-400 tracking-[0.3em]">
-                      {game.roomCode}
-                    </p>
+                  <p className="text-slate-500 text-sm font-semibold mb-2">Share this code:</p>
+                  <p className="text-3xl font-mono font-black text-rose-400 tracking-[0.3em] mb-3">
+                    {game.roomCode}
+                  </p>
+                  <div className="flex gap-2">
                     <button
                       onClick={handleCopyCode}
-                      className="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-700 hover:bg-slate-600 text-white transition-all active:scale-95"
+                      className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-slate-700 hover:bg-slate-600 text-white transition-all active:scale-95"
                     >
-                      {copiedCode ? '✓ Copied' : 'Copy'}
+                      {copiedCode ? '✓ Code Copied' : '📋 Copy Code'}
+                    </button>
+                    <button
+                      onClick={handleShareLink}
+                      className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-rose-700 hover:bg-rose-600 text-white transition-all active:scale-95"
+                    >
+                      {sharedLink ? '✓ Link Copied' : '🔗 Share Link'}
                     </button>
                   </div>
                 </div>

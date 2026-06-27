@@ -281,6 +281,22 @@ export const useBluffSocket = () => {
       sfx.win();
     });
 
+    sock.on('PLAYER_RECONNECTING', (data: any) => {
+      const name = data?.playerName ?? 'A player';
+      setMessage(`${name} lost connection — waiting up to 60s for them to reconnect…`);
+      if (playerLeftTimerRef.current) clearTimeout(playerLeftTimerRef.current);
+      setPlayerLeft(`${name} (reconnecting…)`);
+      playerLeftTimerRef.current = setTimeout(() => setPlayerLeft(null), 8000);
+    });
+
+    sock.on('PLAYER_RECONNECTED', (data: any) => {
+      const name = data?.playerName ?? 'A player';
+      setMessage('');
+      if (playerLeftTimerRef.current) clearTimeout(playerLeftTimerRef.current);
+      setPlayerLeft(`${name} reconnected ✓`);
+      playerLeftTimerRef.current = setTimeout(() => setPlayerLeft(null), 4000);
+    });
+
     sock.on('PLAYER_DISCONNECTED', (data: any) => {
       const name = data?.playerName ?? 'A player';
       setMessage(`${name} disconnected.`);

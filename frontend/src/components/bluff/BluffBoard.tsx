@@ -166,52 +166,52 @@ export default function BluffBoard({
     }, 500);
   };
 
+  const actionRow = (
+    <div className="flex gap-3 items-stretch">
+      {canPlay && (
+        <button
+          onClick={handlePlay}
+          disabled={playAnim}
+          className="flex-1 py-4 rounded-2xl font-black text-white text-lg bg-gradient-to-b from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 active:scale-95 transition-all shadow-lg shadow-emerald-900/40 disabled:opacity-70"
+        >
+          {playAnim
+            ? '🃏 Playing…'
+            : `Play ${selectedIndices.length} card${selectedIndices.length !== 1 ? 's' : ''} as ${rankLabel(currentSeriesRank!)}`}
+        </button>
+      )}
+
+      {canSkip && selectedIndices.length === 0 && (
+        <button
+          onClick={onSkipTurn}
+          className="flex-1 py-4 rounded-2xl font-bold text-slate-300 bg-slate-700/70 hover:bg-slate-600 border border-slate-600/40 active:scale-95 transition-all"
+        >
+          Skip
+        </button>
+      )}
+      {canSkip && selectedIndices.length > 0 && (
+        <button
+          onClick={onSkipTurn}
+          className="px-5 py-4 rounded-2xl font-bold text-slate-400 bg-slate-700/70 hover:bg-slate-600 border border-slate-600/40 active:scale-95 transition-all"
+        >
+          Skip
+        </button>
+      )}
+
+      {canShow && (
+        <button
+          onClick={() => { sfx.bluffCaught(); onCallBluff(); }}
+          className="px-6 py-4 rounded-2xl font-black text-white text-lg active:scale-95 transition-all border border-rose-500/40"
+          style={{ background: 'linear-gradient(145deg, #c0392b, #e63946)', boxShadow: '0 0 20px rgba(230,57,70,0.3)' }}
+        >
+          🫵 SHOW!
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <div className="space-y-4">
-      {/* ── Rank picker: inline (not fullscreen) so hand is visible below ── */}
-      {isMyRankPick && rankPickerVisible && (
-        <RankPickerModal
-          starterName="You"
-          pileTransfer={pileTransfer}
-          onPick={onSetSeriesRank}
-        />
-      )}
-
-      {/* Waiting for another player to pick rank */}
-      {waitingForRankPick && !isMyRankPick && (
-        <div className="rounded-2xl bg-amber-900/20 border border-amber-700/30 p-3 text-center">
-          <p className="text-amber-300 font-semibold text-sm">
-            Waiting for <span className="text-white font-black">{rankPickStarterName}</span> to set the next rank…
-          </p>
-        </div>
-      )}
-
-      {/* Series rank banner */}
-      {currentSeriesRank && !waitingForRankPick && (
-        <div className="flex items-center justify-center gap-3 rounded-2xl bg-emerald-900/25 border border-emerald-700/30 py-2.5 px-5">
-          <span className="text-emerald-400/70 text-xs font-bold uppercase tracking-widest">Series Rank</span>
-          <span className="text-3xl font-black text-white">{rankLabel(currentSeriesRank)}</span>
-          <span className="text-emerald-400/70 text-xs font-semibold">— all cards claimed as this rank</span>
-        </div>
-      )}
-
-      {/* Pile transfer notification */}
-      {pileTransfer && (
-        <div className={`rounded-2xl p-4 text-center font-bold border animate-fade-in-up ${
-          pileTransfer.callerWins
-            ? 'bg-rose-900/40 border-rose-500/50 text-rose-200'
-            : 'bg-amber-900/40 border-amber-500/50 text-amber-200'
-        }`}>
-          <p className="text-lg font-black">
-            {pileTransfer.callerWins ? '🎯 Bluff caught!' : '✅ Legit play!'}
-          </p>
-          <p className="text-sm mt-0.5 font-semibold opacity-90">
-            {pileTransfer.loserName} takes <span className="text-white font-black">{pileTransfer.cards} cards</span> from the pile.
-          </p>
-        </div>
-      )}
-
-      {/* Player strips */}
+      {/* Player strips — always at top so you can see everyone without scrolling */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {players.map((p) => (
           <div
@@ -236,6 +236,48 @@ export default function BluffBoard({
         ))}
       </div>
 
+      {/* ── Rank picker: inline (not fullscreen) so hand is visible below ── */}
+      {isMyRankPick && rankPickerVisible && (
+        <RankPickerModal
+          starterName="You"
+          pileTransfer={pileTransfer}
+          onPick={onSetSeriesRank}
+        />
+      )}
+
+      {/* Waiting for another player to pick rank */}
+      {waitingForRankPick && !isMyRankPick && (
+        <div className="rounded-2xl bg-amber-900/20 border border-amber-700/30 p-3 text-center">
+          <p className="text-amber-300 font-semibold text-sm">
+            Waiting for <span className="text-white font-black">{rankPickStarterName}</span> to set the next rank…
+          </p>
+        </div>
+      )}
+
+      {/* Series rank banner — prominent, no side text */}
+      {currentSeriesRank && !waitingForRankPick && (
+        <div className="flex items-center justify-center gap-4 rounded-2xl bg-emerald-900/50 border-2 border-emerald-500/70 py-3 px-6 shadow-lg shadow-emerald-950/40">
+          <span className="text-emerald-400 text-xs font-bold uppercase tracking-widest">Series Rank</span>
+          <span className="text-5xl font-black text-emerald-300 drop-shadow-lg">{rankLabel(currentSeriesRank)}</span>
+        </div>
+      )}
+
+      {/* Pile transfer notification */}
+      {pileTransfer && (
+        <div className={`rounded-2xl p-4 text-center font-bold border animate-fade-in-up ${
+          pileTransfer.callerWins
+            ? 'bg-rose-900/40 border-rose-500/50 text-rose-200'
+            : 'bg-amber-900/40 border-amber-500/50 text-amber-200'
+        }`}>
+          <p className="text-lg font-black">
+            {pileTransfer.callerWins ? '🎯 Bluff caught!' : '✅ Legit play!'}
+          </p>
+          <p className="text-sm mt-0.5 font-semibold opacity-90">
+            {pileTransfer.loserName} takes <span className="text-white font-black">{pileTransfer.cards} cards</span> from the pile.
+          </p>
+        </div>
+      )}
+
       {/* Turn indicator + timer */}
       {!waitingForRankPick && (
         <div className="text-center">
@@ -259,6 +301,11 @@ export default function BluffBoard({
         </div>
       )}
 
+      {/* Action buttons — shown here on mobile so thumbs can reach easily */}
+      {(canPlay || canSkip || canShow) && (
+        <div className="lg:hidden">{actionRow}</div>
+      )}
+
       {/* Main game area: pile + hand */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <PileDisplay
@@ -279,47 +326,8 @@ export default function BluffBoard({
         />
       </div>
 
-      {/* Action row */}
-      <div className="flex gap-3 items-stretch">
-        {canPlay && (
-          <button
-            onClick={handlePlay}
-            disabled={playAnim}
-            className="flex-1 py-4 rounded-2xl font-black text-white text-lg bg-gradient-to-b from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 active:scale-95 transition-all shadow-lg shadow-emerald-900/40 disabled:opacity-70"
-          >
-            {playAnim
-              ? '🃏 Playing…'
-              : `Play ${selectedIndices.length} card${selectedIndices.length !== 1 ? 's' : ''} as ${rankLabel(currentSeriesRank!)}`}
-          </button>
-        )}
-
-        {canSkip && selectedIndices.length === 0 && (
-          <button
-            onClick={onSkipTurn}
-            className="flex-1 py-4 rounded-2xl font-bold text-slate-300 bg-slate-700/70 hover:bg-slate-600 border border-slate-600/40 active:scale-95 transition-all"
-          >
-            Skip
-          </button>
-        )}
-        {canSkip && selectedIndices.length > 0 && (
-          <button
-            onClick={onSkipTurn}
-            className="px-5 py-4 rounded-2xl font-bold text-slate-400 bg-slate-700/70 hover:bg-slate-600 border border-slate-600/40 active:scale-95 transition-all"
-          >
-            Skip
-          </button>
-        )}
-
-        {canShow && (
-          <button
-            onClick={() => { sfx.bluffCaught(); onCallBluff(); }}
-            className="px-6 py-4 rounded-2xl font-black text-white text-lg active:scale-95 transition-all border border-rose-500/40"
-            style={{ background: 'linear-gradient(145deg, #c0392b, #e63946)', boxShadow: '0 0 20px rgba(230,57,70,0.3)' }}
-          >
-            🫵 SHOW!
-          </button>
-        )}
-      </div>
+      {/* Action row — desktop only (mobile shows it above) */}
+      <div className="hidden lg:block">{actionRow}</div>
 
       {/* Emoji reactions row */}
       {onSendReaction && (
