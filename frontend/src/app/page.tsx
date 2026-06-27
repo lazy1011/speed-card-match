@@ -7,6 +7,7 @@ import PlayerList from '@/components/PlayerList';
 import CurrentCall from '@/components/CurrentCall';
 import StackDisplay from '@/components/StackDisplay';
 import ShuffleOverlay from '@/components/ShuffleOverlay';
+import WakeUpLoader from '@/components/WakeUpLoader';
 
 export default function Home() {
   const game = useGameSocket();
@@ -15,6 +16,14 @@ export default function Home() {
   const [showJoinInput, setShowJoinInput] = useState(false);
   const [isHost, setIsHost] = useState(false);
   const [showShuffle, setShowShuffle] = useState(false);
+  const [showWakeUp, setShowWakeUp] = useState(false);
+
+  // Show wake-up loader after 2s of no connection; hide immediately on connect.
+  useEffect(() => {
+    if (game.connected) { setShowWakeUp(false); return; }
+    const t = setTimeout(() => setShowWakeUp(true), 2000);
+    return () => clearTimeout(t);
+  }, [game.connected]);
 
   // Whose turn it is — compare by socket ID (robust to duplicate names).
   const isCurrentPlayer = !!game.myId && game.myId === game.currentPlayerId;
@@ -56,6 +65,7 @@ export default function Home() {
   if (!game.roomCode) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-700 via-purple-700 to-fuchsia-700 flex items-center justify-center p-4">
+        {showWakeUp && <WakeUpLoader />}
         <div className="w-full max-w-md">
           <div className="bg-white rounded-3xl shadow-2xl p-8">
             <h1 className="text-4xl font-extrabold text-center mb-1 bg-gradient-to-r from-indigo-600 to-fuchsia-600 bg-clip-text text-transparent">

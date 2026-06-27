@@ -139,3 +139,35 @@ body {
   animation: shuffle-right 0.65s ease-in-out infinite;
 }
 
+/* Server wake-up loader */
+@keyframes float-up {
+  0% {
+    transform: translateY(0) scale(1) rotate(0deg);
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateY(-120px) scale(0.4) rotate(20deg);
+    opacity: 0;
+  }
+}
+
+@keyframes wake-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes wake-progress {
+  from { width: 0%; }
+  to   { width: 100%; }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-float-up   { animation: float-up 2.2s ease-in infinite; }
+.animate-wake-spin  { animation: wake-spin 1.2s linear infinite; }
+.animate-wake-progress { animation: wake-progress 28s linear forwards; }
+.animate-fade-in-up { animation: fade-in-up 0.5s ease-out both; }
+
