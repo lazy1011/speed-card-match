@@ -31,7 +31,9 @@ export const useGameSocket = () => {
   const [canClaim, setCanClaim] = useState(false);
   const [claimEndsAt, setClaimEndsAt] = useState<number | null>(null);
   const [lastClaimedBy, setLastClaimedBy] = useState<string | null>(null);
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted] = useState(() =>
+    typeof window !== 'undefined' && localStorage.getItem('card_games_muted') === '1'
+  );
   const [playerLeft, setPlayerLeft] = useState<string | null>(null);
   const [gameAbandoned, setGameAbandoned] = useState<string | null>(null);
   const [reconnecting, setReconnecting] = useState(false);

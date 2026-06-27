@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useGuessWhoSocket } from '@/hooks/useGuessWhoSocket';
+import { usePlayerProfile } from '@/hooks/usePlayerProfile';
 import CharacterCard from '@/components/guess-who/CharacterCard';
 import { GW_CHARACTERS as CHARS, GW_QUESTIONS, GW_QUESTION_CATEGORIES } from '@/data/guessWhoData';
 import WakeUpLoader from '@/components/WakeUpLoader';
@@ -47,6 +48,7 @@ const inputClass =
 export default function GuessWhoPage() {
   const router = useRouter();
   const gw = useGuessWhoSocket();
+  const { profile, loaded, recordResult } = usePlayerProfile();
 
   const [playerName, setPlayerName] = useState('');
   const [joinCode, setJoinCode] = useState('');
@@ -57,12 +59,25 @@ export default function GuessWhoPage() {
   const [pendingGuessId, setPendingGuessId] = useState<number | null>(null);
   const [showLog, setShowLog] = useState(false);
   const [activeCategory, setActiveCategory] = useState(GW_QUESTION_CATEGORIES[0]);
+  const [resultRecorded, setResultRecorded] = useState(false);
 
   useEffect(() => {
     if (gw.connected) { setShowWakeUp(false); return; }
     const t = setTimeout(() => setShowWakeUp(true), 2500);
     return () => clearTimeout(t);
   }, [gw.connected]);
+
+  // Pre-fill name from profile
+  useEffect(() => {
+    if (loaded && profile && !playerName) setPlayerName(profile.name);
+  }, [loaded, profile]);
+
+  // Record Guess Who result
+  useEffect(() => {
+    if (gw.phase !== 'FINISHED' || !gw.gameResult || resultRecorded) return;
+    setResultRecorded(true);
+    recordResult('guessWho', gw.gameResult.won);
+  }, [gw.phase, gw.gameResult]);
 
   // Clear guess mode when phase or turn changes
   useEffect(() => {
@@ -653,14 +668,29 @@ export default function GuessWhoPage() {
             )}
 
             <div className="flex flex-col gap-3">
-              <button onClick={gw.resetForRematch}
+              {/* Rematch (same room) */}
+              {gw.opponentRematchRequested && !gw.rematchRequested && (
+                <div className="rounded-2xl p-2.5 border border-violet-500/40 bg-violet-900/20 text-violet-300 text-xs text-center font-bold animate-pulse-fast">
+                  Opponent wants a rematch!
+                </div>
+              )}
+              <button
+                onClick={gw.requestRematch}
+                disabled={gw.rematchRequested}
                 className={`w-full py-3.5 rounded-2xl font-black text-white active:scale-95 transition-all shadow-lg ${
-                  won ? 'bg-violet-600 hover:bg-violet-500 shadow-violet-900/40' : 'bg-slate-700 hover:bg-slate-600'
-                }`}>
-                🔁 Play Again
+                  gw.rematchRequested
+                    ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                    : won ? 'bg-violet-600 hover:bg-violet-500 shadow-violet-900/40' : 'bg-slate-700 hover:bg-slate-600'
+                }`}
+              >
+                {gw.rematchRequested ? '⏳ Waiting for opponent…' : '🔁 Rematch'}
+              </button>
+              <button onClick={gw.resetForRematch}
+                className="w-full py-2.5 rounded-2xl font-bold text-slate-400 hover:text-white hover:bg-slate-800 text-sm transition-all">
+                New Room
               </button>
               <button onClick={() => router.push('/')}
-                className="w-full py-2.5 text-slate-400 hover:text-white font-semibold text-sm">
+                className="w-full py-2 text-slate-500 hover:text-white font-semibold text-sm">
                 ← Back to Games
               </button>
             </div>

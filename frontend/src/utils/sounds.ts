@@ -23,6 +23,7 @@ function getCtx(): AudioContext | null {
 /** Resume the audio context on the first user gesture (browsers require this). */
 export function initAudioUnlock() {
   if (typeof window === 'undefined') return;
+  muted = localStorage.getItem('card_games_muted') === '1';
   const unlock = () => {
     getCtx();
     window.removeEventListener('pointerdown', unlock);
@@ -34,6 +35,9 @@ export function initAudioUnlock() {
 
 export function setMuted(m: boolean) {
   muted = m;
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('card_games_muted', m ? '1' : '0');
+  }
 }
 export function isMuted() {
   return muted;

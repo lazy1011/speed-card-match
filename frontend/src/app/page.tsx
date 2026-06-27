@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useGameSocket } from '@/hooks/useGameSocket';
+import { usePlayerProfile, AVATAR_EMOJIS } from '@/hooks/usePlayerProfile';
 import GameBoard from '@/components/GameBoard';
 import PlayerList from '@/components/PlayerList';
 import CurrentCall from '@/components/CurrentCall';
@@ -14,6 +15,7 @@ import ChatPanel from '@/components/ChatPanel';
 export default function Home() {
   const router = useRouter();
   const game = useGameSocket();
+  const { profile, loaded, createProfile, recordResult } = usePlayerProfile();
   const [selectedGame, setSelectedGame] = useState<'speed-match' | 'bluff' | null>(null);
   const [playerName, setPlayerName] = useState('');
   const [joinCode, setJoinCode] = useState('');
@@ -22,6 +24,11 @@ export default function Home() {
   const [showShuffle, setShowShuffle] = useState(false);
   const [showWakeUp, setShowWakeUp] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
+  // Profile setup UI
+  const [profileName, setProfileName] = useState('');
+  const [profileAvatar, setProfileAvatar] = useState(AVATAR_EMOJIS[0]);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [resultRecorded, setResultRecorded] = useState(false);
 
   useEffect(() => {
     if (game.connected) { setShowWakeUp(false); return; }
@@ -35,6 +42,18 @@ export default function Home() {
     const t = setTimeout(() => setShowShuffle(false), 1600);
     return () => clearTimeout(t);
   }, [game.gameStarted]);
+
+  // Pre-fill name from profile once loaded
+  useEffect(() => {
+    if (loaded && profile && !playerName) setPlayerName(profile.name);
+  }, [loaded, profile]);
+
+  // Record Speed Match result when game ends
+  useEffect(() => {
+    if (!game.winner || resultRecorded) return;
+    setResultRecorded(true);
+    recordResult('speedMatch', game.winner === playerName);
+  }, [game.winner]);
 
   const isCurrentPlayer = !!game.myId && game.myId === game.currentPlayerId;
 
@@ -66,17 +85,98 @@ export default function Home() {
   const inputClass =
     'w-full px-4 py-3 rounded-2xl border-2 border-[#1e3a25] bg-[#0d2018] text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/30 transition font-semibold';
 
+  const handleSaveProfile = () => {
+    if (!profileName.trim()) return;
+    createProfile(profileName.trim(), profileAvatar);
+    setPlayerName(profileName.trim());
+    setEditingProfile(false);
+  };
+
   // ── Game selector ────────────────────────────────────────────────────────
   if (!selectedGame) {
     return (
-      <div className="min-h-screen felt-bg flex flex-col items-center justify-center p-6">
+      <div className="min-h-screen felt-bg flex flex-col items-center justify-center p-6 gap-8">
         {showWakeUp && <WakeUpLoader />}
 
-        <div className="mb-10 text-center">
+        <div className="text-center">
           <div className="text-6xl mb-3">🃏</div>
           <h1 className="text-5xl font-black text-white tracking-tight">Card Games</h1>
           <p className="text-emerald-400/70 mt-2 font-semibold text-lg">Choose your game</p>
         </div>
+
+        {/* ── Player profile card ── */}
+        {loaded && (
+          <div className="w-full max-w-4xl">
+            {!profile || editingProfile ? (
+              <div className="rounded-2xl border border-slate-700/40 p-5" style={{ background: '#0f1721' }}>
+                <p className="text-slate-300 font-bold text-sm mb-3">{editingProfile ? 'Edit profile' : 'Set up your player profile'}</p>
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <input
+                    type="text"
+                    value={profileName}
+                    onChange={e => setProfileName(e.target.value)}
+                    placeholder="Your name"
+                    maxLength={20}
+                    className="flex-1 px-3 py-2 rounded-xl border border-slate-600 bg-slate-800 text-white placeholder-slate-500 font-semibold focus:outline-none focus:border-violet-500 text-sm"
+                    onKeyDown={e => e.key === 'Enter' && handleSaveProfile()}
+                  />
+                  <div className="flex flex-wrap gap-1.5">
+                    {AVATAR_EMOJIS.slice(0, 10).map(e => (
+                      <button
+                        key={e}
+                        onClick={() => setProfileAvatar(e)}
+                        className={`text-xl w-9 h-9 rounded-xl transition-all ${profileAvatar === e ? 'bg-violet-600 ring-2 ring-violet-400' : 'bg-slate-700 hover:bg-slate-600'}`}
+                      >
+                        {e}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleSaveProfile}
+                      disabled={!profileName.trim()}
+                      className="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-bold text-sm disabled:opacity-40 transition-all"
+                    >
+                      Save
+                    </button>
+                    {editingProfile && (
+                      <button onClick={() => setEditingProfile(false)} className="px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold text-sm transition-all">
+                        Cancel
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-slate-700/40 p-4 flex items-center justify-between" style={{ background: '#0f1721' }}>
+                <div className="flex items-center gap-3">
+                  <span className="text-3xl">{profile.avatar}</span>
+                  <div>
+                    <p className="text-white font-black text-base">{profile.name}</p>
+                    <div className="flex gap-3 mt-0.5">
+                      {[
+                        { label: '⚡', s: profile.stats.speedMatch },
+                        { label: '🎭', s: profile.stats.bluff },
+                        { label: '🕵️', s: profile.stats.guessWho },
+                      ].map(({ label, s }) => (
+                        <span key={label} className="text-xs text-slate-400 font-semibold">
+                          {label} <span className="text-emerald-400">{s.wins}W</span>{' '}
+                          <span className="text-rose-400">{s.losses}L</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => { setProfileName(profile.name); setProfileAvatar(profile.avatar); setEditingProfile(true); }}
+                  className="px-3 py-1.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-bold transition-all"
+                >
+                  Edit
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 w-full max-w-4xl">
           {/* Speed Match card */}

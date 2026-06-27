@@ -50,6 +50,7 @@ interface GWRoom {
   currentTurnPlayerId: string | null;
   turnEndsAt: number | null;
   turnTimer: ReturnType<typeof setTimeout> | null;
+  rematchRequests: Set<string>;
 }
 
 // ── Character data ─────────────────────────────────────────────────────────────
@@ -197,6 +198,7 @@ export function setupGuessWhoEvents(io: Server) {
         currentTurnPlayerId: null,
         turnEndsAt: null,
         turnTimer: null,
+        rematchRequests: new Set(),
       };
       gwRooms.set(roomCode, room);
       socket.join(roomCode);
@@ -369,6 +371,35 @@ export function setupGuessWhoEvents(io: Server) {
         opponentCharacterName: opponentChar.name,
         correct,
       });
+    });
+
+    // ── Rematch ──────────────────────────────────────────────────────────────
+    socket.on('GW_REMATCH', () => {
+      const roomCode = socket.data.gwRoomCode;
+      const playerId = socket.data.gwPlayerId;
+      const room = gwRooms.get(roomCode);
+      if (!room || room.phase !== 'FINISHED') return;
+      if (room.players.length < 2) return;
+
+      room.rematchRequests.add(playerId);
+      // Notify all that this player wants a rematch
+      io.to(roomCode).emit('GW_REMATCH_REQUESTED', { playerId });
+
+      if (room.rematchRequests.size >= 2) {
+        // Both players ready — reset to SELECTING
+        room.rematchRequests.clear();
+        room.phase = 'SELECTING';
+        room.currentTurnPlayerId = null;
+        room.turnEndsAt = null;
+        if (room.turnTimer) { clearTimeout(room.turnTimer); room.turnTimer = null; }
+        for (const p of room.players) {
+          p.secretCharacterId = null;
+          p.hasSelected = false;
+        }
+        io.to(roomCode).emit('GW_SELECTION_PHASE', {
+          players: room.players.map(p => ({ playerId: p.playerId, name: p.name, hasSelected: false })),
+        });
+      }
     });
 
     // ── Leave room ───────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { Card, CardValue, BluffPlayer } from '@/types/game';
-import { sfx, initAudioUnlock } from '@/utils/sounds';
+import { sfx, initAudioUnlock, setMuted as sfxSetMuted } from '@/utils/sounds';
 
 export interface LogEntry {
   id: string;
@@ -52,7 +52,9 @@ export const useBluffSocket = () => {
   const [gameStarted, setGameStarted] = useState(false);
   const [winner, setWinner] = useState<string | null>(null);
   const [message, setMessage] = useState('');
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted] = useState(() =>
+    typeof window !== 'undefined' && localStorage.getItem('card_games_muted') === '1'
+  );
   const [pileTransfer, setPileTransfer] = useState<{ loserName: string; cards: number; callerWins: boolean } | null>(null);
 
   const [currentSeriesRank, setCurrentSeriesRank] = useState<CardValue | null>(null);
@@ -76,7 +78,13 @@ export const useBluffSocket = () => {
   const myIdRef = useRef<string | null>(null);
   const playerLeftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const toggleMute = useCallback(() => setMuted((m) => !m), []);
+  const toggleMute = useCallback(() => {
+    setMuted(m => {
+      const next = !m;
+      sfxSetMuted(next);
+      return next;
+    });
+  }, []);
 
   const appendLog = useCallback((text: string, type: LogEntry['type']) => {
     setGameLog(prev => [...prev.slice(-99), { id: uid(), text, type, timestamp: Date.now() }]);

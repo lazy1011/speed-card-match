@@ -93,6 +93,8 @@ export function useGuessWhoSocket() {
   const [gameResult, setGameResult] = useState<GWGameResult | null>(null);
   const [message, setMessage] = useState('');
   const [opponentLeft, setOpponentLeft] = useState(false);
+  const [rematchRequested, setRematchRequested] = useState(false);
+  const [opponentRematchRequested, setOpponentRematchRequested] = useState(false);
 
   // Local elimination state (not synced — each player manages their own board)
   const [eliminatedIds, setEliminatedIds] = useState<Set<number>>(new Set());
@@ -148,6 +150,28 @@ export function useGuessWhoSocket() {
     sock.on('GW_SELECTION_PHASE', () => {
       setPhase('SELECTING');
       setMessage('Select your secret character!');
+      // Reset per-game state for rematch
+      setGameResult(null);
+      setOpponentLeft(false);
+      setMySecretCharacterId(null);
+      setOpponentHasSelected(false);
+      setCurrentTurnPlayerId(null);
+      setTurnEndsAt(null);
+      setQuestionLog([]);
+      setLastQuestionResult(null);
+      setPendingResult(null);
+      setRematchRequested(false);
+      setOpponentRematchRequested(false);
+      const rc = roomCodeRef.current;
+      if (rc) localStorage.removeItem(`gw_elim_${rc}`);
+      setEliminatedIds(new Set());
+    });
+
+    sock.on('GW_REMATCH_REQUESTED', (data: { playerId: string }) => {
+      const myId = myIdRef.current;
+      if (data.playerId !== myId) {
+        setOpponentRematchRequested(true);
+      }
     });
 
     sock.on('GW_CHARACTER_CONFIRMED', (data: { characterId: number }) => {
@@ -327,6 +351,12 @@ export function useGuessWhoSocket() {
     resetState();
   }, [resetState]);
 
+  const requestRematch = useCallback(() => {
+    if (!socketRef.current || !roomCodeRef.current) return;
+    setRematchRequested(true);
+    socketRef.current.emit('GW_REMATCH');
+  }, []);
+
   return {
     connected,
     phase,
@@ -346,6 +376,8 @@ export function useGuessWhoSocket() {
     message,
     opponentLeft,
     eliminatedIds,
+    rematchRequested,
+    opponentRematchRequested,
     // Actions
     createRoom,
     joinRoom,
@@ -357,5 +389,6 @@ export function useGuessWhoSocket() {
     eliminateNonMatching,
     leaveRoom,
     resetForRematch,
+    requestRematch,
   };
 }

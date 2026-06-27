@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useBluffSocket } from '@/hooks/useBluffSocket';
+import { usePlayerProfile } from '@/hooks/usePlayerProfile';
 import BluffBoard from '@/components/bluff/BluffBoard';
 import WakeUpLoader from '@/components/WakeUpLoader';
 import ChatPanel from '@/components/ChatPanel';
@@ -10,6 +11,7 @@ import ChatPanel from '@/components/ChatPanel';
 export default function BluffPage() {
   const router = useRouter();
   const game = useBluffSocket();
+  const { profile, loaded, recordResult } = usePlayerProfile();
   const [playerName, setPlayerName] = useState('');
   const [joinCode, setJoinCode] = useState('');
   const [showJoinInput, setShowJoinInput] = useState(false);
@@ -18,12 +20,25 @@ export default function BluffPage() {
   const [logOpen, setLogOpen] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [sharedLink, setSharedLink] = useState(false);
+  const [resultRecorded, setResultRecorded] = useState(false);
 
   useEffect(() => {
     if (game.connected) { setShowWakeUp(false); return; }
     const t = setTimeout(() => setShowWakeUp(true), 2000);
     return () => clearTimeout(t);
   }, [game.connected]);
+
+  // Pre-fill name from profile
+  useEffect(() => {
+    if (loaded && profile && !playerName) setPlayerName(profile.name);
+  }, [loaded, profile]);
+
+  // Record Bluff result when game ends
+  useEffect(() => {
+    if (!game.winner || resultRecorded) return;
+    setResultRecorded(true);
+    recordResult('bluff', game.winner === playerName);
+  }, [game.winner]);
 
   // Auto-fill join code from ?code= URL param
   useEffect(() => {

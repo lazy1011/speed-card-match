@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import CardDisplay from '@/components/CardDisplay';
 import { Card, CardValue } from '@/types/game';
 
@@ -20,6 +21,33 @@ export default function PileDisplay({
   pileSize, lastPlay, bluffWindowOpen, revealedCards, pileAnim,
 }: PileDisplayProps) {
   const stackCards = Math.min(pileSize, 6);
+  const [flipCount, setFlipCount] = useState(0);
+  const [showResult, setShowResult] = useState(false);
+  const prevRevealRef = useRef<typeof revealedCards>(null);
+
+  useEffect(() => {
+    const wasNull = prevRevealRef.current === null;
+    prevRevealRef.current = revealedCards;
+
+    if (!revealedCards) {
+      setFlipCount(0);
+      setShowResult(false);
+      return;
+    }
+    if (!wasNull) return; // already animating or done
+
+    // New reveal — reset and animate
+    setFlipCount(0);
+    setShowResult(false);
+    const total = revealedCards.cards.length;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    for (let i = 0; i < total; i++) {
+      timers.push(setTimeout(() => setFlipCount(i + 1), 180 + i * 380));
+    }
+    const resultTimer = setTimeout(() => setShowResult(true), 180 + total * 380 + 250);
+    timers.push(resultTimer);
+    return () => timers.forEach(clearTimeout);
+  }, [revealedCards]);
 
   const pileAnimClass =
     pileAnim === 'receive' ? 'animate-pile-receive' :
@@ -74,22 +102,50 @@ export default function PileDisplay({
         </div>
       )}
 
-      {/* Revealed cards after Show is called */}
+      {/* Revealed cards with flip animation */}
       {revealedCards && (
         <div className="w-full rounded-xl p-3 border border-slate-700/30" style={{ background: '#162218' }}>
-          <p className="text-center text-xs text-slate-400 font-semibold mb-2">Cards revealed</p>
-          <div className="flex gap-1.5 justify-center flex-wrap">
-            {revealedCards.cards.map((c, i) => (
-              <CardDisplay key={i} value={c.value} suit={c.suit} size="sm" />
-            ))}
-          </div>
-          <p className="text-center text-sm mt-2 font-black">
-            {revealedCards.callerWins ? (
-              <span className="text-rose-400">🎯 BLUFF! Claimed {rankLabel(revealedCards.claimedRank)}s</span>
-            ) : (
-              <span className="text-emerald-400">✅ LEGIT — all {rankLabel(revealedCards.claimedRank)}s</span>
-            )}
+          <p className="text-center text-xs text-slate-400 font-semibold mb-3">
+            {flipCount < revealedCards.cards.length ? '🃏 Revealing…' : 'Cards revealed'}
           </p>
+          <div className="flex gap-2 justify-center flex-wrap">
+            {revealedCards.cards.map((c, i) => {
+              const flipped = i < flipCount;
+              return (
+                <div key={i} style={{ perspective: 600, width: 64, height: 96 }}>
+                  <div
+                    style={{
+                      position: 'relative',
+                      width: '100%',
+                      height: '100%',
+                      transformStyle: 'preserve-3d',
+                      transform: flipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
+                      transition: 'transform 0.45s cubic-bezier(0.4, 0, 0.2, 1)',
+                    }}
+                  >
+                    {/* Back (face-down) */}
+                    <div style={{ position: 'absolute', width: '100%', height: '100%', backfaceVisibility: 'hidden' }}>
+                      <CardDisplay value={2} suit="spades" size="sm" faceDown />
+                    </div>
+                    {/* Front (face-up) */}
+                    <div style={{ position: 'absolute', width: '100%', height: '100%', backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}>
+                      <CardDisplay value={c.value} suit={c.suit} size="sm" />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {showResult && (
+            <p className="text-center text-sm mt-3 font-black animate-fade-in-up">
+              {revealedCards.callerWins ? (
+                <span className="text-rose-400">🎯 BLUFF! Claimed {rankLabel(revealedCards.claimedRank)}s</span>
+              ) : (
+                <span className="text-emerald-400">✅ LEGIT — all {rankLabel(revealedCards.claimedRank)}s</span>
+              )}
+            </p>
+          )}
         </div>
       )}
     </div>
