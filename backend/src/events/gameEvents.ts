@@ -565,6 +565,7 @@ export function setupGameEvents(io: Server, roomManager: RoomManager) {
         }
 
         clearBluffTurnTimer(roomCode);
+        roomManager.touch(roomCode);
 
         // If a bluff window is open, this new play implicitly accepts the previous play (no Show).
         // Close the window first and check if the previous player won by emptying their hand.
@@ -647,6 +648,7 @@ export function setupGameEvents(io: Server, roomManager: RoomManager) {
         }
 
         clearBluffTurnTimer(roomCode);
+        roomManager.touch(roomCode);
 
         const result = bluffLogic.skipTurn(playerId);
         if (!result.success) {
@@ -739,6 +741,7 @@ export function setupGameEvents(io: Server, roomManager: RoomManager) {
 
         clearBluffTimer(roomCode);
         clearBluffTurnTimer(roomCode);
+        roomManager.touch(roomCode);
 
         const result = bluffLogic.callBluff(callerId);
         if (!result.success) {
@@ -847,6 +850,18 @@ export function setupGameEvents(io: Server, roomManager: RoomManager) {
       clearReconnectTimer(reconnectKey);
       pendingReconnects.delete(reconnectKey);
 
+      // Remove from Bluff's activePlayers before splicing from room
+      if (wasActive) {
+        const bluffLgcLeave = roomManager.getBluffLogic(roomCode);
+        if (bluffLgcLeave) {
+          const { winnerId: bluffWinnerLeave } = bluffLgcLeave.removePlayer(playerId);
+          if (bluffWinnerLeave) {
+            const w = bluffLgcLeave.getWinner();
+            if (w) io.to(roomCode).emit('BLUFF_GAME_WON', { winnerName: w.name, winnerId: w.id });
+          }
+        }
+      }
+
       const result = roomManager.removePlayerFromRoom(roomCode, playerId);
       socket.leave(roomCode);
 
@@ -906,6 +921,17 @@ export function setupGameEvents(io: Server, roomManager: RoomManager) {
             pendingReconnects.delete(reconnectKey);
 
             clearBluffTurnTimer(roomCode);
+
+            // Remove from Bluff's activePlayers so turn order stays consistent
+            const bluffLgc = roomManager.getBluffLogic(roomCode);
+            if (bluffLgc) {
+              const { winnerId: bluffWinner } = bluffLgc.removePlayer(playerId);
+              if (bluffWinner) {
+                const w = bluffLgc.getWinner();
+                if (w) io.to(roomCode).emit('BLUFF_GAME_WON', { winnerName: w.name, winnerId: w.id });
+              }
+            }
+
             const result = roomManager.removePlayerFromRoom(roomCode, playerId);
 
             if (result.roomExists) {

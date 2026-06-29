@@ -368,8 +368,47 @@ export class BluffGameLogic {
     this.nextStarterId = nextStarterId;
     this.waitingForRankPick = true;
 
-    // Move turn pointer to the nextStarter
+    // Move turn pointer to the nextStarter (fall back to 0 if they're no longer active)
     const idx = this.activePlayers.indexOf(nextStarterId);
-    if (idx !== -1) this.currentPlayerIndex = idx;
+    this.currentPlayerIndex = idx !== -1 ? idx : 0;
+  }
+
+  /**
+   * Remove a player who left mid-game. Keeps activePlayers / turn pointer
+   * consistent so turn order and skip-detection don't break. If only one player
+   * is left, they win. Returns the winner id when the game ends this way.
+   */
+  removePlayer(playerId: string): { winnerId: string | null } {
+    const idx = this.activePlayers.indexOf(playerId);
+    if (idx === -1) return { winnerId: null };
+
+    this.activePlayers.splice(idx, 1);
+    const p = this.players.get(playerId);
+    if (p) p.isActive = false;
+
+    // A leaver collapses any open bluff window — nothing to call anymore.
+    if (this.lastPlayerToPlayId === playerId) {
+      this.bluffWindowOpen = false;
+      this.lastPlay = null;
+    }
+
+    if (this.activePlayers.length <= 1) {
+      this.winnerId = this.activePlayers[0] ?? null;
+      if (this.winnerId) {
+        this.nextGameStarterId = this.winnerId;
+      }
+      return { winnerId: this.winnerId };
+    }
+
+    // Keep the turn pointer in range and off the departed player.
+    if (this.currentPlayerIndex >= this.activePlayers.length) {
+      this.currentPlayerIndex = 0;
+    }
+    if (this.nextStarterId === playerId) {
+      this.nextStarterId = this.activePlayers[this.currentPlayerIndex];
+    }
+    // Reset the skip counter so a stale count can't trigger a phantom discard.
+    this.consecutiveSkips = 0;
+    return { winnerId: null };
   }
 }

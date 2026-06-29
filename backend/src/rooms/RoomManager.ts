@@ -21,6 +21,7 @@ export class RoomManager {
       gameLogic: GameLogic | null;
       bluffLogic: BluffGameLogic | null;
       createdAt: number;
+      lastActiveAt: number;
     }
   > = new Map();
 
@@ -40,10 +41,33 @@ export class RoomManager {
       gameLogic: null,
       bluffLogic: null,
       createdAt: Date.now(),
+      lastActiveAt: Date.now(),
     };
 
     this.rooms.set(code, room);
     return code;
+  }
+
+  /** Mark a room as recently active so the stale-room sweeper leaves it alone. */
+  touch(roomCode: string): void {
+    const room = this.rooms.get(roomCode);
+    if (room) room.lastActiveAt = Date.now();
+  }
+
+  /**
+   * Delete rooms that have been idle longer than maxIdleMs. Returns the count
+   * removed. Called periodically so abandoned rooms don't leak memory forever.
+   */
+  sweepStaleRooms(maxIdleMs: number = 2 * 60 * 60 * 1000): number {
+    const now = Date.now();
+    let removed = 0;
+    for (const [code, room] of this.rooms) {
+      if (now - room.lastActiveAt > maxIdleMs) {
+        this.rooms.delete(code);
+        removed++;
+      }
+    }
+    return removed;
   }
 
   /**

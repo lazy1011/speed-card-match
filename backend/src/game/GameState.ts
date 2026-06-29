@@ -1,7 +1,7 @@
 import { Card, CardValue, GameState } from '../types/game';
 import { PlayerState } from './Player';
 import { Deck } from './Deck';
-import { getNextCallValue, cardsMatch } from '../utils/cardUtils';
+import { getNextCallValue, cardsMatch, shuffle } from '../utils/cardUtils';
 
 /**
  * Core game logic and state management
@@ -17,6 +17,11 @@ export class GameLogic {
     // Initialize players with equal card distribution
     const deck = new Deck();
     const distributions = deck.distributeEquallyToPlayers(playerIds.length);
+
+    // Deal any leftover cards (52 % numPlayers) round-robin so none are orphaned.
+    deck.getLeftover().forEach((card, i) => {
+      distributions[i % distributions.length].push(card);
+    });
 
     this.players = new Map();
     this.activePlayers = [];
@@ -77,6 +82,13 @@ export class GameLogic {
     const player = this.players.get(playerId);
     if (!player) {
       return { drawnCard: null, matched: false, shouldClaimStack: false };
+    }
+
+    // Deadlock guard: if their draw pile is empty but they've won cards, recycle
+    // those back into the deck (shuffled) so they can keep playing.
+    if (player.deck.length === 0 && player.claimedCards.length > 0) {
+      player.deck = shuffle(player.claimedCards);
+      player.claimedCards = [];
     }
 
     const drawnCard = player.drawCard();

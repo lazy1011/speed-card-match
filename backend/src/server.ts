@@ -57,6 +57,12 @@ server.listen(PORT, () => {
   console.log(`[WebSocket] CORS enabled for ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
 });
 
+// Sweep abandoned rooms every 15 minutes
+setInterval(() => {
+  const removed = roomManager.sweepStaleRooms();
+  if (removed > 0) console.log(`[GC] Swept ${removed} stale room(s)`);
+}, 15 * 60 * 1000);
+
 // Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('[Server] SIGTERM received, shutting down gracefully');
