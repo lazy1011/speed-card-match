@@ -43,6 +43,15 @@ interface GWPlayer {
 
 type GWPhase = 'WAITING' | 'SELECTING' | 'PLAYING' | 'FINISHED';
 
+interface GWLogEntry {
+  questionId: string;
+  questionText: string;
+  answer: boolean;
+  askerName: string;
+  askerId: string;
+  matchingCharacterIds: number[];
+}
+
 interface GWRoom {
   roomCode: string;
   players: GWPlayer[];
@@ -51,6 +60,7 @@ interface GWRoom {
   turnEndsAt: number | null;
   turnTimer: ReturnType<typeof setTimeout> | null;
   rematchRequests: Set<string>;
+  questionLog: GWLogEntry[];
 }
 
 // ── Character data ─────────────────────────────────────────────────────────────
@@ -199,6 +209,7 @@ export function setupGuessWhoEvents(io: Server) {
         turnEndsAt: null,
         turnTimer: null,
         rematchRequests: new Set(),
+        questionLog: [],
       };
       gwRooms.set(roomCode, room);
       socket.join(roomCode);
@@ -239,6 +250,7 @@ export function setupGuessWhoEvents(io: Server) {
             opponentHasSelected: opponent?.hasSelected ?? false,
             currentTurnPlayerId: room.currentTurnPlayerId,
             turnEndsAt: room.turnEndsAt,
+            questionLog: room.questionLog,
           });
           io.to(roomCode).emit('GW_PLAYER_RECONNECTED', { playerName: existingPlayer.name });
           return;
@@ -318,6 +330,16 @@ export function setupGuessWhoEvents(io: Server) {
         .filter(c => answerQuestion(c, questionId) === answer)
         .map(c => c.id);
 
+      const logEntry: GWLogEntry = {
+        questionId,
+        questionText: question?.text ?? questionId,
+        answer,
+        askerName: asker?.name ?? '',
+        askerId: playerId,
+        matchingCharacterIds,
+      };
+      room.questionLog.push(logEntry);
+
       io.to(roomCode).emit('GW_QUESTION_RESULT', {
         questionId,
         questionText: question?.text ?? questionId,
@@ -391,6 +413,7 @@ export function setupGuessWhoEvents(io: Server) {
         room.phase = 'SELECTING';
         room.currentTurnPlayerId = null;
         room.turnEndsAt = null;
+        room.questionLog = [];
         if (room.turnTimer) { clearTimeout(room.turnTimer); room.turnTimer = null; }
         for (const p of room.players) {
           p.secretCharacterId = null;
@@ -451,7 +474,7 @@ function cleanupPlayer(io: Server, socket: Socket, intentional: boolean) {
 
   if (room.turnTimer) { clearTimeout(room.turnTimer); room.turnTimer = null; }
 
-  if (intentional && room.phase === 'PLAYING') {
+  if (intentional && (room.phase === 'PLAYING' || room.phase === 'SELECTING')) {
     room.phase = 'FINISHED';
     io.to(roomCode).emit('GW_OPPONENT_LEFT', { playerName: player?.name ?? 'Opponent' });
   }

@@ -250,6 +250,7 @@ export function useGuessWhoSocket() {
       phase: string; myCharacterId: number | null;
       opponentName: string; opponentHasSelected: boolean;
       currentTurnPlayerId: string | null; turnEndsAt: number | null;
+      questionLog?: GWQuestionLogEntry[];
     }) => {
       setRoomCode(data.roomCode);
       setMyId(data.playerId);
@@ -261,6 +262,8 @@ export function useGuessWhoSocket() {
       setTurnEndsAt(data.turnEndsAt);
       if (data.phase === 'SELECTING') setPhase('SELECTING');
       else if (data.phase === 'PLAYING') setPhase('PLAYING');
+
+      if (data.questionLog) setQuestionLog([...data.questionLog].reverse());
 
       // Restore eliminated characters from localStorage
       const stored = localStorage.getItem(`gw_elim_${data.roomCode}`);

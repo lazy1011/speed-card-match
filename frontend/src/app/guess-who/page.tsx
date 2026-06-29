@@ -79,6 +79,11 @@ export default function GuessWhoPage() {
     recordResult('guessWho', gw.gameResult.won);
   }, [gw.phase, gw.gameResult]);
 
+  // Reset resultRecorded when a rematch starts
+  useEffect(() => {
+    if (gw.phase === 'SELECTING') setResultRecorded(false);
+  }, [gw.phase]);
+
   // Clear guess mode when phase or turn changes
   useEffect(() => {
     setGuessMode(false);
@@ -330,14 +335,25 @@ export default function GuessWhoPage() {
             </div>
           )}
 
-          <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+          <div className={`grid grid-cols-4 sm:grid-cols-6 gap-2 ${gw.mySecretCharacterId ? 'pointer-events-none' : ''}`}>
             {CHARS.map(char => (
               <CharacterCard key={char.id} character={char}
-                state={gw.mySecretCharacterId === char.id ? 'secret' : 'active'}
+                state={gw.mySecretCharacterId === char.id ? 'secret' : gw.mySecretCharacterId ? 'eliminated' : 'active'}
                 onClick={!gw.mySecretCharacterId ? () => handleCardClick(char.id) : undefined}
               />
             ))}
           </div>
+
+          {gw.mySecretCharacterId && (
+            <div className="mt-4 rounded-2xl p-4 border border-violet-700/30 bg-violet-900/10 text-center">
+              <div className="flex items-center justify-center gap-2">
+                <div className="w-4 h-4 rounded-full border-2 border-violet-400/30 border-t-violet-400 animate-spin flex-shrink-0" />
+                <p className="text-violet-300 font-bold text-sm">
+                  Waiting for opponent to choose their character…
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -347,7 +363,7 @@ export default function GuessWhoPage() {
 
   if (gw.phase === 'PLAYING') {
     return (
-      <div className="min-h-screen pb-8" style={{ background: 'linear-gradient(135deg, #0d0a24 0%, #0a1a2e 100%)' }}>
+      <div className="min-h-screen" style={{ background: 'linear-gradient(135deg, #0d0a24 0%, #0a1a2e 100%)', paddingBottom: hasPending ? '172px' : '32px' }}>
 
         {/* Confirm guess modal */}
         {pendingGuessId && (
@@ -438,42 +454,6 @@ export default function GuessWhoPage() {
             </div>
           )}
 
-          {/* ── PENDING RESULT PANEL — asker reviews YES/NO before passing ── */}
-          {hasPending && gw.pendingResult && (
-            <div className={`rounded-2xl border overflow-hidden ${
-              gw.pendingResult.answer
-                ? 'border-emerald-600/60 bg-emerald-900/15'
-                : 'border-rose-600/60 bg-rose-900/15'
-            }`}>
-              <div className="px-4 py-3">
-                <div className="flex items-center gap-3 mb-3">
-                  <span className="text-3xl flex-shrink-0">{gw.pendingResult.answer ? '✅' : '❌'}</span>
-                  <div>
-                    <p className="text-white font-black text-base">{gw.pendingResult.questionText}</p>
-                    <p className={`text-sm font-black ${gw.pendingResult.answer ? 'text-emerald-300' : 'text-rose-300'}`}>
-                      {gw.pendingResult.answer
-                        ? `YES — ${gw.pendingResult.matchingCharacterIds.length} characters still possible (green)`
-                        : `NO — ${CHARS.length - gw.pendingResult.matchingCharacterIds.length} to eliminate (dimmed)`}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={handleEliminateAndPass}
-                    className={`flex-1 py-3 rounded-2xl font-black text-white text-sm active:scale-95 transition-all shadow-lg ${
-                      gw.pendingResult.answer
-                        ? 'bg-emerald-700 hover:bg-emerald-600 shadow-emerald-900/40'
-                        : 'bg-rose-700 hover:bg-rose-600 shadow-rose-900/40'
-                    }`}>
-                    ✕ Eliminate All & Pass Turn
-                  </button>
-                  <button onClick={gw.passTurn}
-                    className="flex-shrink-0 px-4 py-3 rounded-2xl font-bold text-slate-300 text-sm bg-slate-700/80 hover:bg-slate-600 border border-slate-600/40 active:scale-95 transition-all">
-                    Skip →
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* Opponent asked about you — notification banner */}
           {gw.lastQuestionResult && gw.lastQuestionResult.askerId !== gw.myId && !isMyTurn && (
@@ -586,11 +566,15 @@ export default function GuessWhoPage() {
                 })}
               </div>
 
-              {/* Guess button */}
-              <div className="px-3 pb-3">
+              {/* Pass turn + Guess buttons */}
+              <div className="px-3 pb-3 flex gap-2">
+                <button onClick={gw.passTurn}
+                  className="flex-shrink-0 px-4 py-3 rounded-2xl font-bold text-slate-400 text-sm bg-slate-800/60 hover:bg-slate-700 border border-slate-700/40 active:scale-95 transition-all">
+                  Pass Turn
+                </button>
                 <button onClick={() => setGuessMode(true)}
-                  className="w-full py-3 rounded-2xl font-black text-white text-sm bg-slate-700/50 hover:bg-violet-900/50 border border-violet-700/30 hover:border-violet-500/50 active:scale-95 transition-all">
-                  🎯 I know who it is — Make a Guess
+                  className="flex-1 py-3 rounded-2xl font-black text-white text-sm bg-slate-700/50 hover:bg-violet-900/50 border border-violet-700/30 hover:border-violet-500/50 active:scale-95 transition-all">
+                  🎯 Make a Guess
                 </button>
               </div>
             </div>
@@ -600,7 +584,10 @@ export default function GuessWhoPage() {
           {!isMyTurn && !guessMode && (
             <div className="rounded-2xl p-4 bg-slate-800/30 border border-slate-700/20 text-center">
               <p className="text-slate-300 text-sm font-semibold">
-                <span className="text-white font-black">{gw.currentTurnPlayerName}</span> is choosing a question…
+                {gw.lastQuestionResult && gw.lastQuestionResult.askerId === gw.currentTurnPlayerId
+                  ? <><span className="text-white font-black">{gw.currentTurnPlayerName}</span> is reviewing the answer…</>
+                  : <><span className="text-white font-black">{gw.currentTurnPlayerName}</span> is choosing a question…</>
+                }
               </p>
               <p className="text-violet-400/60 text-xs mt-1 font-semibold">
                 Tap characters above to eliminate them while you wait
@@ -608,6 +595,40 @@ export default function GuessWhoPage() {
             </div>
           )}
         </div>
+
+        {/* ── FIXED BOTTOM PENDING RESULT PANEL — always visible regardless of scroll ── */}
+        {hasPending && gw.pendingResult && (
+          <div className="fixed bottom-0 left-0 right-0 z-40"
+            style={{ background: 'rgba(10, 8, 28, 0.97)', borderTop: `1px solid ${gw.pendingResult.answer ? 'rgba(52,211,153,0.35)' : 'rgba(248,113,113,0.35)'}`, backdropFilter: 'blur(10px)' }}>
+            <div className="max-w-2xl mx-auto px-3 py-3">
+              <div className="flex items-center gap-3 mb-2.5">
+                <span className="text-2xl flex-shrink-0">{gw.pendingResult.answer ? '✅' : '❌'}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-white font-black text-sm leading-snug truncate">{gw.pendingResult.questionText}</p>
+                  <p className={`text-xs font-bold mt-0.5 ${gw.pendingResult.answer ? 'text-emerald-300' : 'text-rose-300'}`}>
+                    {gw.pendingResult.answer
+                      ? `YES — ${gw.pendingResult.matchingCharacterIds.length} characters still possible`
+                      : `NO — ${CHARS.length - gw.pendingResult.matchingCharacterIds.length} characters to eliminate`}
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={handleEliminateAndPass}
+                  className={`flex-1 py-3 rounded-2xl font-black text-white text-sm active:scale-95 transition-all shadow-lg ${
+                    gw.pendingResult.answer
+                      ? 'bg-emerald-700 hover:bg-emerald-600 shadow-emerald-900/40'
+                      : 'bg-rose-700 hover:bg-rose-600 shadow-rose-900/40'
+                  }`}>
+                  {gw.pendingResult.answer ? '✅ Keep matches & Pass' : '❌ Eliminate non-matches & Pass'}
+                </button>
+                <button onClick={gw.passTurn}
+                  className="flex-shrink-0 px-4 py-3 rounded-2xl font-bold text-slate-300 text-sm bg-slate-700/80 hover:bg-slate-600 border border-slate-600/40 active:scale-95 transition-all">
+                  Skip →
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
