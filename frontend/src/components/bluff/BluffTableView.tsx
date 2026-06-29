@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardValue, BluffPlayer } from '@/types/game';
 import { sfx } from '@/utils/sounds';
@@ -17,6 +17,44 @@ function rnkLabel(v: CardValue): string {
 }
 
 const ALL_RANKS: CardValue[] = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
+
+// ─── Opponent position layout ─────────────────────────────────────────────────
+// Returns absolute-position styles for N opponents arranged naturally around the table.
+
+function getOpponentPositions(n: number): React.CSSProperties[] {
+  switch (n) {
+    case 1:
+      return [
+        { position: 'absolute', top: '4%', left: '50%', transform: 'translateX(-50%)', zIndex: 10 },
+      ];
+    case 2:
+      return [
+        { position: 'absolute', top: '5%', left: '27%', transform: 'translateX(-50%)', zIndex: 10 },
+        { position: 'absolute', top: '5%', left: '73%', transform: 'translateX(-50%)', zIndex: 10 },
+      ];
+    case 3:
+      return [
+        { position: 'absolute', top: '4%', left: '50%', transform: 'translateX(-50%)', zIndex: 10 },
+        { position: 'absolute', top: '50%', left: '3%', transform: 'translateY(-50%)', zIndex: 10 },
+        { position: 'absolute', top: '50%', right: '3%', transform: 'translateY(-50%)', zIndex: 10 },
+      ];
+    case 4:
+      return [
+        { position: 'absolute', top: '5%', left: '27%', transform: 'translateX(-50%)', zIndex: 10 },
+        { position: 'absolute', top: '5%', left: '73%', transform: 'translateX(-50%)', zIndex: 10 },
+        { position: 'absolute', top: '50%', left: '3%', transform: 'translateY(-50%)', zIndex: 10 },
+        { position: 'absolute', top: '50%', right: '3%', transform: 'translateY(-50%)', zIndex: 10 },
+      ];
+    default: // 5
+      return [
+        { position: 'absolute', top: '4%', left: '18%', transform: 'translateX(-50%)', zIndex: 10 },
+        { position: 'absolute', top: '4%', left: '50%', transform: 'translateX(-50%)', zIndex: 10 },
+        { position: 'absolute', top: '4%', left: '82%', transform: 'translateX(-50%)', zIndex: 10 },
+        { position: 'absolute', top: '50%', left: '3%', transform: 'translateY(-50%)', zIndex: 10 },
+        { position: 'absolute', top: '50%', right: '3%', transform: 'translateY(-50%)', zIndex: 10 },
+      ];
+  }
+}
 
 // ─── FaceDownStack ────────────────────────────────────────────────────────────
 
@@ -63,14 +101,13 @@ function PlayingCard({
       style={{
         width: 54, height: 76, flexShrink: 0,
         border: selected ? '2px solid #fbbf24' : '1.5px solid #d1d5db',
-        cursor: disabled ? 'default' : 'pointer',
+        cursor: 'inherit',
         boxShadow: selected
           ? '0 0 16px rgba(251,191,36,0.75), 0 6px 18px rgba(0,0,0,0.55)'
           : '0 4px 10px rgba(0,0,0,0.5)',
       }}
-      animate={{ y: selected ? -22 : 0, scale: selected ? 1.07 : 1 }}
+      animate={{ y: selected ? -16 : 0, scale: selected ? 1.06 : 1 }}
       transition={{ type: 'spring', stiffness: 380, damping: 24 }}
-      whileTap={!disabled ? { scale: 0.93 } : undefined}
     >
       <div className="absolute top-0.5 left-1.5 leading-none" style={{ color: clr, fontSize: 10, fontWeight: 900 }}>
         <div>{rank}</div>
@@ -196,7 +233,7 @@ function PlayerSlot({
 
 function CenterPile({
   pileSize, lastPlay, bluffWindowOpen, canCallBluff, onCallBluff,
-  currentSeriesRank, waitingForRankPick,
+  currentSeriesRank, waitingForRankPick, isDraggingCard,
 }: {
   pileSize: number;
   lastPlay: { playerName: string; playedById: string | null; claimedRank: CardValue; claimedCount: number } | null;
@@ -205,6 +242,7 @@ function CenterPile({
   onCallBluff: () => void;
   currentSeriesRank: CardValue | null;
   waitingForRankPick: boolean;
+  isDraggingCard: boolean;
 }) {
   return (
     <div className="flex flex-col items-center gap-2">
@@ -222,10 +260,21 @@ function CenterPile({
         </div>
       )}
 
-      {/* Pile of cards */}
+      {/* Pile of cards — glows when a card is being dragged toward it */}
       <div className="relative" style={{ width: 56, height: 76 }}>
+        {isDraggingCard && (
+          <motion.div
+            className="absolute rounded-xl border-2 border-yellow-400"
+            style={{
+              inset: -10, zIndex: 0,
+              boxShadow: '0 0 24px rgba(251,191,36,0.5)',
+            }}
+            animate={{ boxShadow: ['0 0 12px rgba(251,191,36,0.4)', '0 0 28px rgba(251,191,36,0.75)', '0 0 12px rgba(251,191,36,0.4)'] }}
+            transition={{ repeat: Infinity, duration: 0.7 }}
+          />
+        )}
         {pileSize > 0 ? (
-          <>
+          <div className="absolute inset-0 z-10">
             {[...Array(Math.min(5, pileSize))].map((_, i) => (
               <div key={i} className="absolute rounded-lg" style={{
                 width: 52, height: 72,
@@ -237,28 +286,36 @@ function CenterPile({
                 zIndex: i,
               }} />
             ))}
-            <div className="absolute inset-0 flex flex-col items-center justify-center z-10 rounded-lg"
+            <div className="absolute inset-0 flex flex-col items-center justify-center rounded-lg z-20"
               style={{ background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(2px)' }}>
               <span className="text-white font-black text-base leading-none">{pileSize}</span>
               <span className="text-white/50 text-[8px] font-bold">cards</span>
             </div>
-          </>
+          </div>
         ) : (
-          <div className="w-full h-full rounded-xl border-2 border-dashed border-slate-700/60 flex items-center justify-center">
+          <div className="absolute inset-0 z-10 rounded-xl border-2 border-dashed border-slate-700/60 flex items-center justify-center">
             <span className="text-slate-700 text-[9px] font-bold">pile</span>
           </div>
         )}
       </div>
 
-      {/* Last play description */}
-      {lastPlay && (
+      {/* Drop hint while dragging */}
+      {isDraggingCard ? (
+        <motion.div
+          className="font-black text-[10px] text-yellow-300 tracking-widest"
+          animate={{ opacity: [0.5, 1, 0.5] }}
+          transition={{ repeat: Infinity, duration: 0.65 }}
+        >
+          ↑ DROP
+        </motion.div>
+      ) : lastPlay ? (
         <div className="text-center leading-none">
           <div className="text-white/50 text-[9px] font-semibold">{lastPlay.playerName}</div>
           <div className="text-white font-black text-xs">
             {lastPlay.claimedCount}× {rnkLabel(lastPlay.claimedRank)}
           </div>
         </div>
-      )}
+      ) : null}
 
       {/* BLUFF? button */}
       <AnimatePresence>
@@ -333,16 +390,28 @@ function InlineRankPicker({ onPick, starterName }: { onPick: (r: CardValue) => v
   );
 }
 
-// ─── CardHand (fan) ───────────────────────────────────────────────────────────
+// ─── CardHand (fan layout + drag-to-play) ────────────────────────────────────
+// Drag any card upward > 80 px to play it. Tap to select. Drag a selected card
+// to play all selected cards at once; drag an unselected card to play just it.
 
 function CardHand({
-  cards, selectedIndices, onToggle, disabled,
+  cards, selectedIndices, onToggle, disabled, onDragPlay, onDragActiveChange,
 }: {
   cards: Card[];
   selectedIndices: number[];
   onToggle: (i: number) => void;
   disabled: boolean;
+  onDragPlay?: (cardIndex: number) => void;
+  onDragActiveChange?: (active: boolean) => void;
 }) {
+  const dragRef = useRef<{
+    index: number;
+    startY: number;
+    currentDY: number;
+    wasDrag: boolean;
+  } | null>(null);
+  const [dragState, setDragState] = useState<{ index: number; dy: number } | null>(null);
+
   if (cards.length === 0) {
     return (
       <div className="h-24 flex items-center justify-center">
@@ -352,36 +421,91 @@ function CardHand({
   }
 
   const n = cards.length;
-  // Dynamic overlap: up to 32px per card, but never wider than 340px
   const overlap = Math.min(32, 340 / Math.max(1, n - 1));
   const maxRot = Math.min(5, 48 / n);
 
+  function handlePDown(e: React.PointerEvent, i: number) {
+    if (disabled) return;
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    dragRef.current = { index: i, startY: e.clientY, currentDY: 0, wasDrag: false };
+    setDragState({ index: i, dy: 0 });
+  }
+
+  function handlePMove(e: React.PointerEvent, i: number) {
+    if (!dragRef.current || dragRef.current.index !== i) return;
+    const dy = Math.max(-200, Math.min(24, e.clientY - dragRef.current.startY));
+    dragRef.current.currentDY = dy;
+    if (!dragRef.current.wasDrag && Math.abs(dy) > 8) {
+      dragRef.current.wasDrag = true;
+      onDragActiveChange?.(true);
+    }
+    setDragState({ index: i, dy });
+  }
+
+  function handlePUp(e: React.PointerEvent, i: number) {
+    if (!dragRef.current || dragRef.current.index !== i) return;
+    const { currentDY, wasDrag } = dragRef.current;
+    dragRef.current = null;
+    setDragState(null);
+    onDragActiveChange?.(false);
+    if (wasDrag) {
+      if (currentDY < -80 && onDragPlay) onDragPlay(i);
+    } else {
+      onToggle(i);
+    }
+  }
+
+  function handlePCancel() {
+    dragRef.current = null;
+    setDragState(null);
+    onDragActiveChange?.(false);
+  }
+
   return (
-    <div className="relative flex justify-center items-end overflow-visible" style={{ height: 108 }}>
+    <div className="relative flex justify-center items-end overflow-visible" style={{ height: 112 }}>
+      {/* Subtle swipe hint when it's the player's turn */}
+      {!disabled && (
+        <div className="absolute -top-5 left-0 right-0 flex justify-center pointer-events-none">
+          <span className="text-slate-600 text-[9px] font-semibold tracking-wider uppercase">
+            tap to select · drag up to play
+          </span>
+        </div>
+      )}
+
       {cards.map((card, i) => {
         const offset = i - (n - 1) / 2;
         const rot = offset * maxRot;
         const ty = Math.abs(offset) * 1.2;
         const isSelected = selectedIndices.includes(i);
+        const isDraggingThis = dragState?.index === i;
+        const extraDy = isDraggingThis ? dragState!.dy : 0;
+
         return (
           <div
             key={i}
-            className="absolute"
             style={{
+              position: 'absolute',
               left: `calc(50% + ${offset * overlap}px - 27px)`,
               bottom: 0,
-              transform: `rotate(${rot}deg) translateY(${ty}px)`,
+              transform: `rotate(${rot}deg) translateY(${ty + extraDy}px)`,
               transformOrigin: 'bottom center',
-              zIndex: isSelected ? 200 + i : i,
-              transition: 'transform 0.15s',
-            }}
+              zIndex: isDraggingThis ? 500 : (isSelected ? 200 + i : i),
+              transition: isDraggingThis ? 'none' : 'transform 0.2s ease-out',
+              touchAction: 'none',
+              cursor: disabled ? 'default' : isDraggingThis ? 'grabbing' : 'grab',
+              userSelect: 'none',
+              WebkitUserSelect: 'none',
+            } as React.CSSProperties}
+            onPointerDown={e => handlePDown(e, i)}
+            onPointerMove={e => handlePMove(e, i)}
+            onPointerUp={e => handlePUp(e, i)}
+            onPointerCancel={handlePCancel}
           >
-            <PlayingCard
-              card={card}
-              selected={isSelected}
-              onClick={() => !disabled && onToggle(i)}
-              disabled={disabled}
-            />
+            {/* pointer-events:none prevents PlayingCard from intercepting drag events */}
+            <div style={{ pointerEvents: 'none' }}>
+              <PlayingCard card={card} selected={isSelected} />
+            </div>
           </div>
         );
       })}
@@ -505,6 +629,7 @@ export default function BluffTableView({
   const [isSorted, setIsSorted] = useState(false);
   const [handOrder, setHandOrder] = useState<number[]>([]);
   const [showBusted, setShowBusted] = useState(false);
+  const [isDraggingCard, setIsDraggingCard] = useState(false);
 
   const isMyTurn = !!myId && myId === currentPlayerId;
   const isMyRankPick = waitingForRankPick && !!myId && myId === rankPickStarterId;
@@ -552,6 +677,23 @@ export default function BluffTableView({
     }, 380);
   };
 
+  // Drag-to-play handler: dragging a selected card plays ALL selected;
+  // dragging an unselected card plays just that one.
+  const handleDragPlay = useCallback((displayIndex: number) => {
+    if (!isMyTurn || waitingForRankPick || !currentSeriesRank) return;
+    const indicesToPlay = selectedIndices.includes(displayIndex) && selectedIndices.length > 0
+      ? selectedIndices
+      : [displayIndex];
+    setPlayAnim(true);
+    const origIdx = indicesToPlay.map(dp => handOrder[dp] ?? dp);
+    const rank = currentSeriesRank;
+    setTimeout(() => {
+      onPlayCards(origIdx, rank, origIdx.length);
+      setSelectedIndices([]);
+      setPlayAnim(false);
+    }, 380);
+  }, [isMyTurn, waitingForRankPick, currentSeriesRank, selectedIndices, handOrder, onPlayCards]);
+
   const handleSort = () => {
     setSelectedIndices([]);
     if (isSorted) {
@@ -564,13 +706,11 @@ export default function BluffTableView({
     }
   };
 
-  // Position opponents around the table
+  // Smart positioning: sort opponents by player order, then assign positions by count.
   const opponents = players.filter(p => p.id !== myId);
   const me = players.find(p => p.id === myId) ?? null;
-  const topOpp = opponents[0] ?? null;
-  const leftOpp = opponents[1] ?? null;
-  const rightOpp = opponents[2] ?? null;
-  const extraOpps = opponents.slice(3);
+  const visibleOpps = opponents.slice(0, 5);
+  const oppPositions = getOpponentPositions(visibleOpps.length);
 
   return (
     <div className="flex flex-col gap-3">
@@ -602,58 +742,18 @@ export default function BluffTableView({
           }}
         />
 
-        {/* ── Top opponent ── */}
-        <div className="absolute top-[4%] left-1/2 -translate-x-1/2 z-10">
-          <PlayerSlot
-            player={topOpp}
-            isActive={!!topOpp && topOpp.id === currentPlayerId && !waitingForRankPick}
-            isRankPicker={!!topOpp && topOpp.id === rankPickStarterId && waitingForRankPick}
-            showTimer={!!(topOpp && topOpp.id === currentPlayerId && !isMyTurn && turnEndsAt)}
-            timerEndsAt={turnEndsAt}
-          />
-        </div>
-
-        {/* ── Left opponent ── */}
-        {leftOpp && (
-          <div className="absolute left-[3%] top-1/2 -translate-y-1/2 z-10">
+        {/* ── Opponents — auto-positioned by count ── */}
+        {visibleOpps.map((opp, idx) => (
+          <div key={opp.id} style={oppPositions[idx]}>
             <PlayerSlot
-              player={leftOpp}
-              isActive={leftOpp.id === currentPlayerId && !waitingForRankPick}
-              isRankPicker={leftOpp.id === rankPickStarterId && waitingForRankPick}
+              player={opp}
+              isActive={opp.id === currentPlayerId && !waitingForRankPick}
+              isRankPicker={opp.id === rankPickStarterId && waitingForRankPick}
+              showTimer={!!(opp.id === currentPlayerId && !isMyTurn && turnEndsAt)}
+              timerEndsAt={turnEndsAt}
             />
           </div>
-        )}
-
-        {/* ── Right opponent ── */}
-        {rightOpp && (
-          <div className="absolute right-[3%] top-1/2 -translate-y-1/2 z-10">
-            <PlayerSlot
-              player={rightOpp}
-              isActive={rightOpp.id === currentPlayerId && !waitingForRankPick}
-              isRankPicker={rightOpp.id === rankPickStarterId && waitingForRankPick}
-            />
-          </div>
-        )}
-
-        {/* Extra opponents (5th/6th) at top-left / top-right */}
-        {extraOpps[0] && (
-          <div className="absolute left-[18%] top-[8%] z-10">
-            <PlayerSlot
-              player={extraOpps[0]}
-              isActive={extraOpps[0].id === currentPlayerId && !waitingForRankPick}
-              isRankPicker={extraOpps[0].id === rankPickStarterId && waitingForRankPick}
-            />
-          </div>
-        )}
-        {extraOpps[1] && (
-          <div className="absolute right-[18%] top-[8%] z-10">
-            <PlayerSlot
-              player={extraOpps[1]}
-              isActive={extraOpps[1].id === currentPlayerId && !waitingForRankPick}
-              isRankPicker={extraOpps[1].id === rankPickStarterId && waitingForRankPick}
-            />
-          </div>
-        )}
+        ))}
 
         {/* ── Center pile ── */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10">
@@ -665,6 +765,7 @@ export default function BluffTableView({
             onCallBluff={onCallBluff}
             currentSeriesRank={currentSeriesRank}
             waitingForRankPick={waitingForRankPick}
+            isDraggingCard={isDraggingCard && isMyTurn && !!currentSeriesRank}
           />
         </div>
 
@@ -838,7 +939,7 @@ export default function BluffTableView({
 
       {/* ── My hand ─────────────────────────────────────────────────────────── */}
       <div
-        className="rounded-2xl p-3"
+        className="rounded-2xl p-3 pt-5"
         style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}
       >
         <div className="flex items-center justify-between mb-1">
@@ -857,7 +958,11 @@ export default function BluffTableView({
           cards={displayedCards}
           selectedIndices={selectedIndices}
           onToggle={handleToggle}
-          disabled={!isMyTurn || waitingForRankPick}
+          disabled={!isMyTurn || waitingForRankPick || playAnim}
+          onDragPlay={isMyTurn && !waitingForRankPick && !!currentSeriesRank && !playAnim
+            ? handleDragPlay
+            : undefined}
+          onDragActiveChange={setIsDraggingCard}
         />
       </div>
 

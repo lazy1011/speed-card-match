@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useGameSocket } from '@/hooks/useGameSocket';
 import { usePlayerProfile, AVATAR_EMOJIS } from '@/hooks/usePlayerProfile';
 import GameBoard from '@/components/GameBoard';
@@ -11,6 +12,131 @@ import StackDisplay from '@/components/StackDisplay';
 import ShuffleOverlay from '@/components/ShuffleOverlay';
 import WakeUpLoader from '@/components/WakeUpLoader';
 import ChatPanel from '@/components/ChatPanel';
+
+// ─── Bokeh background ────────────────────────────────────────────────────────
+
+const BOKEH = [
+  { w: 380, h: 380, x: -4, y: 2,  c: 'rgba(109,40,217,0.18)' },
+  { w: 300, h: 300, x: 72, y: -6, c: 'rgba(251,191,36,0.09)' },
+  { w: 260, h: 260, x: 8,  y: 55, c: 'rgba(244,63,94,0.08)'  },
+  { w: 340, h: 340, x: 60, y: 65, c: 'rgba(59,130,246,0.08)' },
+  { w: 220, h: 220, x: 88, y: 18, c: 'rgba(16,185,129,0.07)' },
+];
+
+function CasinoBg() {
+  return (
+    <>
+      {BOKEH.map((b, i) => (
+        <div key={i} className="absolute pointer-events-none" style={{
+          width: b.w, height: b.h,
+          left: `${b.x}%`, top: `${b.y}%`,
+          background: `radial-gradient(circle, ${b.c}, transparent 70%)`,
+          filter: 'blur(48px)',
+          transform: 'translate(-50%, -50%)',
+        }} />
+      ))}
+      <div className="absolute inset-0 pointer-events-none opacity-[0.06]" style={{
+        backgroundImage: 'radial-gradient(rgba(255,255,255,0.9) 1px, transparent 1px)',
+        backgroundSize: '24px 24px',
+      }} />
+    </>
+  );
+}
+
+// ─── Card art for each game ───────────────────────────────────────────────────
+
+function SpeedMatchArt() {
+  return (
+    <div className="relative w-16 h-20 mx-auto mb-4">
+      {[1, 2].map(i => (
+        <div key={i} className="absolute rounded-xl" style={{
+          width: 42, height: 58,
+          top: i * 6, left: i * 10,
+          background: 'linear-gradient(145deg, #1a1408, #0a0804)',
+          border: '2px solid rgba(251,191,36,0.5)',
+          boxShadow: i === 2 ? '0 0 18px rgba(251,191,36,0.3)' : 'none',
+        }}>
+          <div className="absolute inset-0 flex items-center justify-center" style={{ fontSize: 22, color: '#fbbf24' }}>⚡</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BluffArt() {
+  return (
+    <div className="relative w-16 h-20 mx-auto mb-4">
+      {[0, 1, 2].map(i => (
+        <div key={i} className="absolute rounded-xl" style={{
+          width: 42, height: 58,
+          top: i * 4, left: i * 8,
+          background: 'linear-gradient(135deg, #b91c1c, #7f1d1d)',
+          border: '1.5px solid rgba(255,255,255,0.22)',
+          backgroundImage: 'repeating-linear-gradient(45deg,transparent,transparent 5px,rgba(255,255,255,0.04) 5px,rgba(255,255,255,0.04) 10px)',
+          zIndex: i,
+          transform: `rotate(${(i - 1) * 5}deg)`,
+          boxShadow: i === 2 ? '0 0 16px rgba(124,58,237,0.45)' : 'none',
+        }} />
+      ))}
+    </div>
+  );
+}
+
+function GuessWhoArt() {
+  return (
+    <div className="relative w-16 h-20 mx-auto mb-4 flex items-center justify-center">
+      <div className="absolute inset-0 rounded-xl" style={{
+        background: 'linear-gradient(145deg, #0a1020, #050810)',
+        border: '2px solid rgba(59,130,246,0.45)',
+        boxShadow: '0 0 18px rgba(59,130,246,0.25)',
+      }} />
+      <span className="relative text-3xl z-10">🕵️</span>
+    </div>
+  );
+}
+
+// ─── Game card ────────────────────────────────────────────────────────────────
+
+function GameCard({
+  onClick, accentRgb, borderOpacity = 0.28, children,
+}: {
+  onClick: () => void;
+  accentRgb: string;
+  borderOpacity?: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <motion.button
+      onClick={onClick}
+      className="group relative overflow-hidden rounded-2xl p-6 text-left w-full"
+      style={{
+        background: `radial-gradient(ellipse at 30% 15%, rgba(${accentRgb},0.06) 0%, transparent 65%), linear-gradient(160deg, #0e0c1e 0%, #080618 100%)`,
+        border: `1.5px solid rgba(${accentRgb},${borderOpacity})`,
+        boxShadow: `0 2px 24px rgba(${accentRgb},0.08)`,
+      }}
+      initial={{ opacity: 0, y: 24 }}
+      animate={{ opacity: 1, y: 0 }}
+      whileHover={{
+        scale: 1.02,
+        boxShadow: `0 8px 40px rgba(${accentRgb},0.22)`,
+        borderColor: `rgba(${accentRgb},0.55)`,
+      }}
+      whileTap={{ scale: 0.97 }}
+      transition={{ type: 'spring', stiffness: 280, damping: 22 }}
+    >
+      {/* Corner glow on hover */}
+      <div className="absolute top-0 right-0 w-40 h-40 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
+        style={{
+          background: `radial-gradient(circle, rgba(${accentRgb},0.1), transparent 70%)`,
+          transform: 'translate(30%, -30%)',
+        }}
+      />
+      {children}
+    </motion.button>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
 
 export default function Home() {
   const router = useRouter();
@@ -24,7 +150,6 @@ export default function Home() {
   const [showShuffle, setShowShuffle] = useState(false);
   const [showWakeUp, setShowWakeUp] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
-  // Profile setup UI
   const [profileName, setProfileName] = useState('');
   const [profileAvatar, setProfileAvatar] = useState(AVATAR_EMOJIS[0]);
   const [editingProfile, setEditingProfile] = useState(false);
@@ -43,12 +168,10 @@ export default function Home() {
     return () => clearTimeout(t);
   }, [game.gameStarted]);
 
-  // Pre-fill name from profile once loaded
   useEffect(() => {
     if (loaded && profile && !playerName) setPlayerName(profile.name);
   }, [loaded, profile]);
 
-  // Record Speed Match result when game ends
   useEffect(() => {
     if (!game.winner || resultRecorded) return;
     setResultRecorded(true);
@@ -82,9 +205,6 @@ export default function Home() {
     game.sendChat(text, playerName);
   }, [game, playerName]);
 
-  const inputClass =
-    'w-full px-4 py-3 rounded-2xl border-2 border-[#1e3a25] bg-[#0d2018] text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/30 transition font-semibold';
-
   const handleSaveProfile = () => {
     if (!profileName.trim()) return;
     createProfile(profileName.trim(), profileAvatar);
@@ -92,24 +212,55 @@ export default function Home() {
     setEditingProfile(false);
   };
 
-  // ── Game selector ────────────────────────────────────────────────────────
+  const inputClass =
+    'w-full px-4 py-3 rounded-2xl border-2 bg-white/5 text-white placeholder-slate-500 focus:outline-none transition font-semibold'
+    + ' border-white/10 focus:border-violet-500/60 focus:ring-2 focus:ring-violet-500/20';
+
+  // ── Game selector ──────────────────────────────────────────────────────────
   if (!selectedGame) {
     return (
-      <div className="min-h-screen felt-bg flex flex-col items-center justify-center p-6 gap-8">
+      <div className="min-h-screen relative overflow-hidden flex flex-col items-center p-5 pt-10 pb-16 gap-7"
+        style={{ background: 'linear-gradient(160deg, #0c0a1e 0%, #080618 60%, #100822 100%)' }}>
+
         {showWakeUp && <WakeUpLoader />}
+        <CasinoBg />
 
-        <div className="text-center">
-          <div className="text-6xl mb-3">🃏</div>
-          <h1 className="text-5xl font-black text-white tracking-tight">Card Games</h1>
-          <p className="text-emerald-400/70 mt-2 font-semibold text-lg">Choose your game</p>
-        </div>
+        {/* Logo */}
+        <motion.div
+          className="relative z-10 text-center"
+          initial={{ opacity: 0, y: -16, scale: 0.92 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ type: 'spring', stiffness: 220, damping: 20, delay: 0.05 }}
+        >
+          <div
+            className="font-black leading-none tracking-tight select-none"
+            style={{
+              fontSize: 'clamp(38px, 9vw, 68px)',
+              background: 'linear-gradient(180deg, #fde68a 0%, #fbbf24 45%, #f97316 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+              filter: 'drop-shadow(0 3px 14px rgba(251,191,36,0.35)) drop-shadow(2px 3px 0px #92400e)',
+            }}
+          >
+            CARD GAMES
+          </div>
+          <p className="text-slate-500 font-semibold text-sm mt-2 tracking-wide">
+            Pick a game · Play with friends
+          </p>
+        </motion.div>
 
-        {/* ── Player profile card ── */}
+        {/* Profile card */}
         {loaded && (
-          <div className="w-full max-w-4xl">
+          <motion.div
+            className="relative z-10 w-full max-w-3xl"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.12 }}
+          >
             {!profile || editingProfile ? (
-              <div className="rounded-2xl border border-slate-700/40 p-5" style={{ background: '#0f1721' }}>
-                <p className="text-slate-300 font-bold text-sm mb-3">{editingProfile ? 'Edit profile' : 'Set up your player profile'}</p>
+              <div className="rounded-2xl border border-white/8 p-5" style={{ background: 'rgba(255,255,255,0.04)', backdropFilter: 'blur(12px)' }}>
+                <p className="text-slate-400 font-bold text-sm mb-3">{editingProfile ? 'Edit profile' : 'Set up your player profile'}</p>
                 <div className="flex flex-col sm:flex-row gap-4">
                   <input
                     type="text"
@@ -117,7 +268,7 @@ export default function Home() {
                     onChange={e => setProfileName(e.target.value)}
                     placeholder="Your name"
                     maxLength={20}
-                    className="flex-1 px-3 py-2 rounded-xl border border-slate-600 bg-slate-800 text-white placeholder-slate-500 font-semibold focus:outline-none focus:border-violet-500 text-sm"
+                    className="flex-1 px-3 py-2 rounded-xl border border-white/12 bg-white/5 text-white placeholder-slate-500 font-semibold focus:outline-none focus:border-violet-500/60 text-sm"
                     onKeyDown={e => e.key === 'Enter' && handleSaveProfile()}
                   />
                   <div className="flex flex-wrap gap-1.5">
@@ -125,7 +276,8 @@ export default function Home() {
                       <button
                         key={e}
                         onClick={() => setProfileAvatar(e)}
-                        className={`text-xl w-9 h-9 rounded-xl transition-all ${profileAvatar === e ? 'bg-violet-600 ring-2 ring-violet-400' : 'bg-slate-700 hover:bg-slate-600'}`}
+                        className={`text-xl w-9 h-9 rounded-xl transition-all ${profileAvatar === e ? 'ring-2 ring-violet-400' : 'hover:bg-white/10'}`}
+                        style={{ background: profileAvatar === e ? 'rgba(124,58,237,0.5)' : 'rgba(255,255,255,0.06)' }}
                       >
                         {e}
                       </button>
@@ -135,12 +287,13 @@ export default function Home() {
                     <button
                       onClick={handleSaveProfile}
                       disabled={!profileName.trim()}
-                      className="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-bold text-sm disabled:opacity-40 transition-all"
+                      className="px-4 py-2 rounded-xl font-bold text-sm disabled:opacity-40 transition-all text-white"
+                      style={{ background: 'rgba(124,58,237,0.7)' }}
                     >
                       Save
                     </button>
                     {editingProfile && (
-                      <button onClick={() => setEditingProfile(false)} className="px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold text-sm transition-all">
+                      <button onClick={() => setEditingProfile(false)} className="px-4 py-2 rounded-xl font-bold text-sm text-slate-300 transition-all" style={{ background: 'rgba(255,255,255,0.07)' }}>
                         Cancel
                       </button>
                     )}
@@ -148,7 +301,7 @@ export default function Home() {
                 </div>
               </div>
             ) : (
-              <div className="rounded-2xl border border-slate-700/40 p-4 flex items-center justify-between" style={{ background: '#0f1721' }}>
+              <div className="rounded-2xl border border-white/8 p-4 flex items-center justify-between" style={{ background: 'rgba(255,255,255,0.04)', backdropFilter: 'blur(12px)' }}>
                 <div className="flex items-center gap-3">
                   <span className="text-3xl">{profile.avatar}</span>
                   <div>
@@ -169,101 +322,105 @@ export default function Home() {
                 </div>
                 <button
                   onClick={() => { setProfileName(profile.name); setProfileAvatar(profile.avatar); setEditingProfile(true); }}
-                  className="px-3 py-1.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-bold transition-all"
+                  className="px-3 py-1.5 rounded-xl text-slate-400 text-xs font-bold transition-all hover:text-white"
+                  style={{ background: 'rgba(255,255,255,0.06)' }}
                 >
                   Edit
                 </button>
               </div>
             )}
-          </div>
+          </motion.div>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 w-full max-w-4xl">
-          {/* Speed Match card */}
-          <button
-            onClick={() => setSelectedGame('speed-match')}
-            className="group relative overflow-hidden rounded-3xl p-8 text-left transition-all active:scale-95 border-2 border-yellow-500/30 hover:border-yellow-400/60"
-            style={{ background: 'linear-gradient(145deg, #1a2e0f, #0f1f09)' }}
-          >
-            <div className="absolute top-0 right-0 w-32 h-32 rounded-full opacity-20 group-hover:opacity-40 transition-opacity"
-              style={{ background: 'radial-gradient(circle, #ffd60a, transparent)', transform: 'translate(30%, -30%)' }} />
-            <div className="text-5xl mb-4">⚡</div>
-            <h2 className="text-2xl font-black text-white mb-2">Speed Match</h2>
-            <p className="text-slate-400 text-sm font-semibold leading-relaxed">
-              Race to match cards and slam the stack before anyone else does.
-            </p>
-            <div className="mt-5 flex items-center gap-2 text-yellow-400 text-sm font-bold">
-              <span>2–4 players</span>
-              <span className="text-slate-600">·</span>
-              <span>Fast-paced</span>
-            </div>
-          </button>
+        {/* Game cards */}
+        <div className="relative z-10 grid grid-cols-1 sm:grid-cols-3 gap-5 w-full max-w-3xl">
 
-          {/* Bluff card */}
-          <button
-            onClick={() => router.push('/bluff')}
-            className="group relative overflow-hidden rounded-3xl p-8 text-left transition-all active:scale-95 border-2 border-rose-500/30 hover:border-rose-400/60"
-            style={{ background: 'linear-gradient(145deg, #2a0f1a, #1a0810)' }}
-          >
-            <div className="absolute top-0 right-0 w-32 h-32 rounded-full opacity-20 group-hover:opacity-40 transition-opacity"
-              style={{ background: 'radial-gradient(circle, #e63946, transparent)', transform: 'translate(30%, -30%)' }} />
-            <div className="text-5xl mb-4">🎭</div>
-            <h2 className="text-2xl font-black text-white mb-2">Bluff</h2>
+          {/* Speed Match */}
+          <GameCard onClick={() => setSelectedGame('speed-match')} accentRgb="251,191,36">
+            <SpeedMatchArt />
+            <h2 className="text-xl font-black text-white mb-1.5">Speed Match</h2>
             <p className="text-slate-400 text-sm font-semibold leading-relaxed">
-              Play cards face-down and lie about their rank. Call "Show" to catch liars.
+              Race to match cards and slam the stack first.
             </p>
-            <div className="mt-5 flex items-center gap-2 text-rose-400 text-sm font-bold">
-              <span>2–6 players</span>
-              <span className="text-slate-600">·</span>
-              <span>Strategic</span>
+            <div className="mt-4 text-xs font-bold" style={{ color: '#fbbf24' }}>
+              2–4 players · Fast-paced
             </div>
-          </button>
+            <div className="mt-3 w-full py-2.5 rounded-xl text-center text-sm font-black text-slate-900 transition-all group-hover:brightness-110"
+              style={{ background: 'linear-gradient(135deg, #fbbf24, #f97316)' }}>
+              Play Now
+            </div>
+          </GameCard>
 
-          {/* Guess Who card */}
-          <button
-            onClick={() => router.push('/guess-who')}
-            className="group relative overflow-hidden rounded-3xl p-8 text-left transition-all active:scale-95 border-2 border-violet-500/30 hover:border-violet-400/60"
-            style={{ background: 'linear-gradient(145deg, #1a0f2e, #100a1f)' }}
-          >
-            <div className="absolute top-0 right-0 w-32 h-32 rounded-full opacity-20 group-hover:opacity-40 transition-opacity"
-              style={{ background: 'radial-gradient(circle, #8b5cf6, transparent)', transform: 'translate(30%, -30%)' }} />
-            <div className="text-5xl mb-4">🕵️</div>
-            <h2 className="text-2xl font-black text-white mb-2">Guess Who?</h2>
+          {/* Bluff */}
+          <GameCard onClick={() => router.push('/bluff')} accentRgb="124,58,237" borderOpacity={0.35}>
+            <BluffArt />
+            <h2 className="text-xl font-black text-white mb-1.5">Bluff</h2>
             <p className="text-slate-400 text-sm font-semibold leading-relaxed">
-              Pick a secret character. Ask yes/no questions to deduce your opponent's.
+              Lie about your cards. Call bluff to catch liars.
             </p>
-            <div className="mt-5 flex items-center gap-2 text-violet-400 text-sm font-bold">
-              <span>2 players</span>
-              <span className="text-slate-600">·</span>
-              <span>Deduction</span>
+            <div className="mt-4 text-xs font-bold" style={{ color: '#a78bfa' }}>
+              2–6 players · Strategic
             </div>
-          </button>
+            <div className="mt-3 w-full py-2.5 rounded-xl text-center text-sm font-black text-white transition-all group-hover:brightness-110"
+              style={{ background: 'linear-gradient(135deg, #6d28d9, #7c3aed)' }}>
+              Play Now
+            </div>
+          </GameCard>
+
+          {/* Guess Who */}
+          <GameCard onClick={() => router.push('/guess-who')} accentRgb="59,130,246">
+            <GuessWhoArt />
+            <h2 className="text-xl font-black text-white mb-1.5">Guess Who?</h2>
+            <p className="text-slate-400 text-sm font-semibold leading-relaxed">
+              Ask yes/no questions to deduce your opponent's character.
+            </p>
+            <div className="mt-4 text-xs font-bold" style={{ color: '#60a5fa' }}>
+              2 players · Deduction
+            </div>
+            <div className="mt-3 w-full py-2.5 rounded-xl text-center text-sm font-black text-white transition-all group-hover:brightness-110"
+              style={{ background: 'linear-gradient(135deg, #1d4ed8, #3b82f6)' }}>
+              Play Now
+            </div>
+          </GameCard>
         </div>
       </div>
     );
   }
 
-  // ── Speed Match lobby ────────────────────────────────────────────────────
+  // ── Speed Match lobby ──────────────────────────────────────────────────────
   if (!game.roomCode) {
     return (
-      <div className="min-h-screen felt-bg flex items-center justify-center p-4">
+      <div className="min-h-screen relative overflow-hidden flex items-center justify-center p-4"
+        style={{ background: 'linear-gradient(160deg, #0c0a1e 0%, #080618 100%)' }}>
         {showWakeUp && <WakeUpLoader />}
-        <div className="w-full max-w-md">
+        <CasinoBg />
+
+        <div className="relative z-10 w-full max-w-md">
           <button
             onClick={() => setSelectedGame(null)}
-            className="mb-4 text-slate-400 hover:text-emerald-400 text-sm font-bold flex items-center gap-1 transition-colors"
+            className="mb-4 text-slate-400 hover:text-yellow-400 text-sm font-bold flex items-center gap-1 transition-colors"
           >
             ← Back to games
           </button>
-          <div className="rounded-3xl border border-[#1e3a25] shadow-2xl p-8" style={{ background: '#0d2018' }}>
+
+          <motion.div
+            className="rounded-3xl border p-8"
+            style={{ background: 'rgba(255,255,255,0.04)', backdropFilter: 'blur(16px)', borderColor: 'rgba(251,191,36,0.2)' }}
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+          >
             <div className="text-center mb-6">
-              <div className="text-4xl mb-2">⚡</div>
+              <div className="w-14 h-14 mx-auto mb-3 rounded-2xl flex items-center justify-center text-3xl"
+                style={{ background: 'rgba(251,191,36,0.12)', border: '2px solid rgba(251,191,36,0.3)' }}>
+                ⚡
+              </div>
               <h1 className="text-3xl font-black text-white">Speed Match</h1>
-              <p className="text-emerald-400/70 mt-1 font-semibold">Real-time multiplayer</p>
+              <p className="text-slate-400 mt-1 font-semibold text-sm">Real-time multiplayer</p>
             </div>
 
             {!game.connected && (
-              <div className="mb-4 p-3 bg-amber-900/30 border border-amber-600/40 rounded-2xl text-amber-400 text-sm text-center font-semibold">
+              <div className="mb-4 p-3 rounded-2xl text-amber-400 text-sm text-center font-semibold"
+                style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)' }}>
                 Connecting to server…
               </div>
             )}
@@ -274,39 +431,39 @@ export default function Home() {
                 <input
                   type="text"
                   value={playerName}
-                  onChange={(e) => setPlayerName(e.target.value)}
+                  onChange={e => setPlayerName(e.target.value)}
                   placeholder="Enter your name"
                   className={inputClass}
-                  onKeyPress={(e) => { if (e.key === 'Enter' && !showJoinInput) handleCreateRoom(); }}
+                  onKeyPress={e => { if (e.key === 'Enter' && !showJoinInput) handleCreateRoom(); }}
                 />
               </div>
 
               {!showJoinInput && (
                 <>
-                  <button
+                  <motion.button
                     onClick={handleCreateRoom}
                     disabled={!game.connected || !playerName.trim()}
-                    className={`w-full py-3.5 rounded-2xl font-black text-lg transition-all ${
-                      game.connected && playerName.trim()
-                        ? 'bg-yellow-400 hover:bg-yellow-300 text-slate-900 active:scale-95 shadow-lg shadow-yellow-900/30'
-                        : 'bg-slate-700 text-slate-500 cursor-not-allowed'
-                    }`}
+                    className="w-full py-3.5 rounded-2xl font-black text-lg transition-all text-slate-900 disabled:opacity-40"
+                    style={{ background: 'linear-gradient(135deg, #fbbf24, #f97316)' }}
+                    whileHover={{ scale: 1.01 }}
+                    whileTap={{ scale: 0.97 }}
                   >
                     ➕ Create Room
-                  </button>
+                  </motion.button>
 
                   <div className="relative my-4">
                     <div className="absolute inset-0 flex items-center">
-                      <div className="w-full border-t border-[#1e3a25]"></div>
+                      <div className="w-full border-t border-white/8" />
                     </div>
                     <div className="relative flex justify-center text-sm">
-                      <span className="px-3 text-slate-500 font-semibold" style={{ background: '#0d2018' }}>or</span>
+                      <span className="px-3 text-slate-500 font-semibold" style={{ background: '#0b0919' }}>or</span>
                     </div>
                   </div>
 
                   <button
                     onClick={() => setShowJoinInput(true)}
-                    className="w-full py-3.5 rounded-2xl font-black text-white border-2 border-emerald-600/50 hover:border-emerald-400 hover:bg-emerald-900/30 transition-all"
+                    className="w-full py-3.5 rounded-2xl font-black text-white border-2 transition-all"
+                    style={{ borderColor: 'rgba(251,191,36,0.3)', background: 'rgba(251,191,36,0.06)' }}
                   >
                     Join Existing Room
                   </button>
@@ -320,25 +477,24 @@ export default function Home() {
                     <input
                       type="text"
                       value={joinCode}
-                      onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                      onChange={e => setJoinCode(e.target.value.toUpperCase())}
                       placeholder="ENTER CODE"
                       maxLength={6}
                       className={`${inputClass} tracking-[0.4em] text-center text-xl`}
                       autoFocus
-                      onKeyPress={(e) => { if (e.key === 'Enter' && joinCode.trim()) handleJoinRoom(); }}
+                      onKeyPress={e => { if (e.key === 'Enter' && joinCode.trim()) handleJoinRoom(); }}
                     />
                   </div>
-                  <button
+                  <motion.button
                     onClick={handleJoinRoom}
                     disabled={!game.connected || !playerName.trim() || !joinCode.trim()}
-                    className={`w-full py-3.5 rounded-2xl font-black text-lg transition-all ${
-                      game.connected && playerName.trim() && joinCode.trim()
-                        ? 'bg-emerald-500 hover:bg-emerald-400 text-white active:scale-95 shadow-lg shadow-emerald-900/40'
-                        : 'bg-slate-700 text-slate-500 cursor-not-allowed'
-                    }`}
+                    className="w-full py-3.5 rounded-2xl font-black text-lg text-white disabled:opacity-40 transition-all"
+                    style={{ background: 'linear-gradient(135deg, #059669, #10b981)' }}
+                    whileHover={{ scale: 1.01 }}
+                    whileTap={{ scale: 0.97 }}
                   >
                     ✓ Join Room
-                  </button>
+                  </motion.button>
                   <button
                     onClick={() => setShowJoinInput(false)}
                     className="w-full py-2 text-slate-500 hover:text-slate-300 text-sm font-semibold"
@@ -350,22 +506,22 @@ export default function Home() {
             </div>
 
             {game.message && (
-              <div className="mt-5 p-3 bg-emerald-900/20 border border-emerald-700/30 rounded-2xl text-emerald-300 text-sm text-center font-semibold">
+              <div className="mt-5 p-3 rounded-2xl text-emerald-300 text-sm text-center font-semibold"
+                style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)' }}>
                 {game.message}
               </div>
             )}
-          </div>
+          </motion.div>
         </div>
       </div>
     );
   }
 
-  // ── Speed Match game screen ──────────────────────────────────────────────
+  // ── Speed Match game screen ────────────────────────────────────────────────
   return (
     <div className="min-h-screen felt-bg p-4 md:p-6">
       {showShuffle && <ShuffleOverlay />}
 
-      {/* ── Reconnecting overlay ── */}
       {game.reconnecting && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm">
           <div className="text-center animate-fade-in-up">
@@ -376,7 +532,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* ── Player left toast ── */}
       {game.playerLeft && (
         <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 animate-fade-in-up">
           <div className="flex items-center gap-3 px-5 py-3 rounded-2xl bg-slate-800 border border-slate-600/50 shadow-2xl text-white font-semibold text-sm">
@@ -386,7 +541,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* ── Reaction time badge ── */}
       {game.reactionTimeMs !== null && (
         <div className="fixed top-5 right-5 z-50 animate-fade-in-up">
           <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-yellow-500/20 border border-yellow-400/40 shadow-xl">
@@ -398,7 +552,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* ── Claim streak badge ── */}
       {game.claimStreak >= 3 && (
         <div className="fixed top-16 right-5 z-50 animate-fade-in-up">
           <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-rose-500/20 border border-rose-400/40 shadow-xl">
@@ -408,7 +561,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* ── Game abandoned popup ── */}
       {game.gameAbandoned && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 backdrop-blur-sm p-4">
           <div className="w-full max-w-sm rounded-3xl p-8 text-center shadow-2xl border border-yellow-700/30 animate-fade-in-up"
@@ -416,10 +568,7 @@ export default function Home() {
             <div className="text-6xl mb-4">😔</div>
             <h2 className="text-2xl font-black text-white mb-2">Game Ended</h2>
             <p className="text-slate-400 font-semibold text-sm mb-6">{game.gameAbandoned}</p>
-            <button
-              onClick={game.leaveRoom}
-              className="w-full py-3.5 rounded-2xl font-black text-slate-900 bg-yellow-400 hover:bg-yellow-300 active:scale-95 transition-all"
-            >
+            <button onClick={game.leaveRoom} className="w-full py-3.5 rounded-2xl font-black text-slate-900 bg-yellow-400 hover:bg-yellow-300 active:scale-95 transition-all">
               Exit Game
             </button>
           </div>
@@ -427,7 +576,6 @@ export default function Home() {
       )}
 
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
         <div className="flex justify-between items-center mb-6">
           <div>
             <h1 className="text-3xl md:text-4xl font-black text-white tracking-tight">⚡ Speed Match</h1>
@@ -448,16 +596,10 @@ export default function Home() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={game.toggleMute}
-              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-2xl border border-slate-700 transition-all active:scale-95"
-            >
+            <button onClick={game.toggleMute} className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-2xl border border-slate-700 transition-all active:scale-95">
               {game.muted ? '🔇' : '🔊'}
             </button>
-            <button
-              onClick={game.leaveRoom}
-              className="px-5 py-2.5 bg-rose-700 hover:bg-rose-600 text-white font-black rounded-2xl transition-all active:scale-95"
-            >
+            <button onClick={game.leaveRoom} className="px-5 py-2.5 bg-rose-700 hover:bg-rose-600 text-white font-black rounded-2xl transition-all active:scale-95">
               Leave
             </button>
           </div>
@@ -505,22 +647,14 @@ export default function Home() {
                 <div className="mb-5">
                   <p className="text-slate-400 mb-1 font-semibold">Share this code:</p>
                   <div className="flex items-center gap-2">
-                    <span className="text-3xl font-mono font-black text-yellow-400 tracking-[0.3em]">
-                      {game.roomCode}
-                    </span>
-                    <button
-                      onClick={handleCopyCode}
-                      className="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-700 hover:bg-slate-600 text-white transition-all active:scale-95"
-                    >
+                    <span className="text-3xl font-mono font-black text-yellow-400 tracking-[0.3em]">{game.roomCode}</span>
+                    <button onClick={handleCopyCode} className="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-700 hover:bg-slate-600 text-white transition-all active:scale-95">
                       {copiedCode ? '✓ Copied' : 'Copy'}
                     </button>
                   </div>
                 </div>
                 {isHost && game.players.length >= 2 && (
-                  <button
-                    onClick={game.startGame}
-                    className="px-6 py-4 bg-yellow-400 hover:bg-yellow-300 text-slate-900 font-black text-lg rounded-2xl transition-all active:scale-95 shadow-lg shadow-yellow-900/30"
-                  >
+                  <button onClick={game.startGame} className="px-6 py-4 bg-yellow-400 hover:bg-yellow-300 text-slate-900 font-black text-lg rounded-2xl transition-all active:scale-95 shadow-lg shadow-yellow-900/30">
                     🎮 Start Game
                   </button>
                 )}
@@ -555,7 +689,6 @@ export default function Home() {
         )}
       </div>
 
-      {/* Chat panel */}
       <ChatPanel
         messages={game.chatMessages}
         onSend={handleSendChat}
