@@ -350,7 +350,14 @@ export function setupGuessWhoEvents(io: Server) {
       });
 
       // Don't advance turn immediately — asker reviews the answer and clicks Pass Turn.
-      // The turn timer will auto-advance if they don't pass in time.
+      // Reset the turn timer so reviewing isn't cut short by time spent picking the question.
+      if (room.turnTimer) clearTimeout(room.turnTimer);
+      room.turnEndsAt = Date.now() + TURN_MS;
+      io.to(roomCode).emit('GW_TIMER_UPDATE', { turnEndsAt: room.turnEndsAt });
+      room.turnTimer = setTimeout(() => {
+        if (gwRooms.get(roomCode)?.phase !== 'PLAYING') return;
+        advanceTurn(io, room);
+      }, TURN_MS);
     });
 
     // ── Pass turn ─────────────────────────────────────────────────────────────

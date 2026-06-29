@@ -194,6 +194,10 @@ export function useGuessWhoSocket() {
       setMessage('');
     });
 
+    sock.on('GW_TIMER_UPDATE', (data: { turnEndsAt: number }) => {
+      setTurnEndsAt(data.turnEndsAt);
+    });
+
     sock.on('GW_QUESTION_RESULT', (data: GWQuestionLogEntry) => {
       setLastQuestionResult(data);
       setQuestionLog(prev => [data, ...prev]);

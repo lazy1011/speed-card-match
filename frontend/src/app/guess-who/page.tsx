@@ -363,7 +363,7 @@ export default function GuessWhoPage() {
 
   if (gw.phase === 'PLAYING') {
     return (
-      <div className="min-h-screen" style={{ background: 'linear-gradient(135deg, #0d0a24 0%, #0a1a2e 100%)', paddingBottom: hasPending ? '172px' : '32px' }}>
+      <div className="min-h-screen" style={{ background: 'linear-gradient(135deg, #0d0a24 0%, #0a1a2e 100%)', paddingBottom: hasPending ? 'calc(180px + env(safe-area-inset-bottom, 0px))' : '32px' }}>
 
         {/* Confirm guess modal */}
         {pendingGuessId && (
@@ -599,7 +599,7 @@ export default function GuessWhoPage() {
         {/* ── FIXED BOTTOM PENDING RESULT PANEL — always visible regardless of scroll ── */}
         {hasPending && gw.pendingResult && (
           <div className="fixed bottom-0 left-0 right-0 z-40"
-            style={{ background: 'rgba(10, 8, 28, 0.97)', borderTop: `1px solid ${gw.pendingResult.answer ? 'rgba(52,211,153,0.35)' : 'rgba(248,113,113,0.35)'}`, backdropFilter: 'blur(10px)' }}>
+            style={{ background: 'rgba(10, 8, 28, 0.97)', borderTop: `1px solid ${gw.pendingResult.answer ? 'rgba(52,211,153,0.35)' : 'rgba(248,113,113,0.35)'}`, backdropFilter: 'blur(10px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
             <div className="max-w-2xl mx-auto px-3 py-3">
               <div className="flex items-center gap-3 mb-2.5">
                 <span className="text-2xl flex-shrink-0">{gw.pendingResult.answer ? '✅' : '❌'}</span>
