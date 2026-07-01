@@ -36,3 +36,8 @@ Thumbs.db
 
 # Vercel
 .vercel/
+.vercel
+
+# Local tool artifacts
+.claude/
+.playwright-mcp/

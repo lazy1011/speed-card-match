@@ -37,10 +37,18 @@ export function setupGameEvents(io: Server, roomManager: RoomManager) {
   const lastClaimResolvedAt = new Map<string, number>();
   const bluffWindowTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const bluffTurnTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  // Absolute epoch (ms) when the current turn timer expires per room, so reconnecting
+  // players receive the remaining duration instead of a fresh 30-second window.
+  const bluffTurnEndsAt = new Map<string, number>();
 
   // Reconnect grace period: key = `${roomCode}:${playerName}`
+  // NOTE: Key uses playerName because the client doesn't persist its player ID across page reloads.
+  // A stronger fix (player-ID tokens in localStorage) would prevent the name-squatting window.
   const reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const pendingReconnects = new Map<string, { oldPlayerId: string; roomCode: string; playerName: string }>();
+
+  // Emoji allowlist — must stay in sync with REACTION_EMOJIS in BluffTableView.tsx
+  const ALLOWED_REACTION_EMOJIS = new Set(['😂', '🔥', '👏', '😱', '🤡', '💀', '🎭', '👀']);
 
   const RECONNECT_GRACE_MS = 60_000; // 1 minute
 
@@ -57,6 +65,7 @@ export function setupGameEvents(io: Server, roomManager: RoomManager) {
   function clearBluffTurnTimer(roomCode: string) {
     const t = bluffTurnTimers.get(roomCode);
     if (t) { clearTimeout(t); bluffTurnTimers.delete(roomCode); }
+    bluffTurnEndsAt.delete(roomCode);
   }
 
   function clearReconnectTimer(key: string) {
@@ -226,6 +235,8 @@ export function setupGameEvents(io: Server, roomManager: RoomManager) {
                 kittySize: bluffLogic.getKittySize(),
               });
               socket.emit('MY_HAND', { cards: bluffLogic.getHandForPlayer(oldPlayerId) });
+              // Tell the client which player ID it owns (new socket ID ≠ old player ID)
+              socket.emit('MY_PLAYER_ID', { playerId: oldPlayerId });
 
               // Resume turn timer only if it's this player's turn
               if (bluffLogic.getCurrentPlayer()?.id === oldPlayerId) {
@@ -761,20 +772,24 @@ export function setupGameEvents(io: Server, roomManager: RoomManager) {
 
         const callerName = bluffLogic.getPlayers().find((p) => p.id === callerId)?.name;
         const nextStarterName = bluffLogic.getPlayers().find((p) => p.id === result.nextStarterId)?.name;
+        const loserId = bluffLogic.getPlayers().find((p) => p.name === result.loserName)?.id;
 
         // Reveal the last play's cards
         io.to(roomCode).emit('BLUFF_CALLED', {
           callerName,
+          callerId,
           revealedCards: result.revealedCards,
           claimedRank: result.claimedRank,
           callerWins: result.callerWins,
           loserName: result.loserName,
+          loserId,
           totalPileCards: result.loserReceivesCards,
         });
 
         // Settlement — embed rank-pick info so frontend can update in one event
         io.to(roomCode).emit('BLUFF_SETTLED', {
           loserName: result.loserName,
+          loserId,
           cardsReceived: result.loserReceivesCards,
           callerWins: result.callerWins,
           newPileSize: 0,
@@ -826,6 +841,7 @@ export function setupGameEvents(io: Server, roomManager: RoomManager) {
      */
     socket.on('SEND_REACTION', (data: { roomCode: string; emoji: string; playerName: string }) => {
       if (!data.roomCode || !data.emoji) return;
+      if (!ALLOWED_REACTION_EMOJIS.has(data.emoji)) return;
       io.to(data.roomCode).emit('REACTION', {
         playerName: data.playerName || 'Unknown',
         emoji: data.emoji,

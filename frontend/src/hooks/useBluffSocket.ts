@@ -77,6 +77,10 @@ export const useBluffSocket = () => {
   const socketRef = useRef<Socket | null>(null);
   const myIdRef = useRef<string | null>(null);
   const playerLeftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pileTransferTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reactionTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  // Reactive myId so components re-render when socket reconnects with a different ID
+  const [myId, setMyId] = useState<string | null>(null);
 
   const toggleMute = useCallback(() => {
     setMuted(m => {
@@ -105,6 +109,7 @@ export const useBluffSocket = () => {
       setConnected(true);
       setReconnecting(false);
       myIdRef.current = sock.id ?? null;
+      setMyId(sock.id ?? null);
     });
     sock.on('disconnect', () => {
       setConnected(false);
@@ -159,6 +164,12 @@ export const useBluffSocket = () => {
       setTurnEndsAt(data.endsAt);
     });
 
+    // Server tells us our effective player ID after reconnect (new socket ID ≠ old player ID)
+    sock.on('MY_PLAYER_ID', (data: { playerId: string }) => {
+      myIdRef.current = data.playerId;
+      setMyId(data.playerId);
+    });
+
     sock.on('BLUFF_CARDS_PLAYED', (data: any) => {
       setPileSize(data.newPileSize);
       setPlayers(data.players || []);
@@ -202,18 +213,17 @@ export const useBluffSocket = () => {
         setMessage(`🎯 Bluff caught by ${data.callerName}! ${data.loserName} takes the pile.`);
         appendLog(`${data.callerName} caught ${data.loserName}'s bluff!`, 'bluff');
         sfx.bluffCaught();
-        // Track my stats
-        const myId = myIdRef.current;
-        if (myId) {
-          if (data.callerId === myId) setMyStats(s => ({ ...s, bluffsCaught: s.bluffsCaught + 1 }));
-          if (data.loserId === myId) setMyStats(s => ({ ...s, timesBluffCaught: s.timesBluffCaught + 1 }));
+        const currentMyId = myIdRef.current;
+        if (currentMyId) {
+          if (data.callerId === currentMyId) setMyStats(s => ({ ...s, bluffsCaught: s.bluffsCaught + 1 }));
+          if (data.loserId === currentMyId) setMyStats(s => ({ ...s, timesBluffCaught: s.timesBluffCaught + 1 }));
         }
       } else {
         setMessage(`✅ Legit play! ${data.callerName} got caught — ${data.loserName} takes the pile.`);
         appendLog(`${data.callerName} called Show — but it was legit!`, 'bluff');
         sfx.legitPlay();
-        const myId = myIdRef.current;
-        if (myId && data.loserId === myId) {
+        const currentMyId = myIdRef.current;
+        if (currentMyId && data.loserId === currentMyId) {
           setMyStats(s => ({ ...s, timesBluffCaught: s.timesBluffCaught + 1 }));
         }
       }
@@ -227,10 +237,14 @@ export const useBluffSocket = () => {
       setLastPlay(null);
       if (data.cardsReceived > 0) {
         setPileTransfer({ loserName: data.loserName, cards: data.cardsReceived, callerWins: data.callerWins });
-        setTimeout(() => setPileTransfer(null), 4500);
+        if (pileTransferTimerRef.current) clearTimeout(pileTransferTimerRef.current);
+        pileTransferTimerRef.current = setTimeout(() => {
+          pileTransferTimerRef.current = null;
+          setPileTransfer(null);
+        }, 4500);
         // Track cards taken
-        const myId = myIdRef.current;
-        if (myId && data.loserId === myId) {
+        const currentMyId = myIdRef.current;
+        if (currentMyId && data.loserId === currentMyId) {
           setMyStats(s => ({ ...s, cardsTaken: s.cardsTaken + data.cardsReceived }));
         }
       }
@@ -324,9 +338,11 @@ export const useBluffSocket = () => {
         emoji: data.emoji,
       };
       setReactions(prev => [...prev, reaction]);
-      setTimeout(() => {
+      const tid = setTimeout(() => {
+        reactionTimersRef.current.delete(tid);
         setReactions(prev => prev.filter(r => r.id !== reaction.id));
       }, 3500);
+      reactionTimersRef.current.add(tid);
     });
 
     sock.on('CHAT_MESSAGE', (data: any) => {
@@ -341,6 +357,9 @@ export const useBluffSocket = () => {
 
     return () => {
       if (playerLeftTimerRef.current) clearTimeout(playerLeftTimerRef.current);
+      if (pileTransferTimerRef.current) clearTimeout(pileTransferTimerRef.current);
+      reactionTimersRef.current.forEach(clearTimeout);
+      reactionTimersRef.current.clear();
       sock.close();
     };
   }, [appendLog]);
@@ -409,10 +428,15 @@ export const useBluffSocket = () => {
   const leaveRoom = useCallback(() => {
     if (!socketRef.current || !roomCode) return;
     socketRef.current.emit('LEAVE_ROOM', { roomCode, playerId: socketRef.current.id });
+    // Clear all pending timers before resetting state
+    if (pileTransferTimerRef.current) { clearTimeout(pileTransferTimerRef.current); pileTransferTimerRef.current = null; }
+    reactionTimersRef.current.forEach(clearTimeout);
+    reactionTimersRef.current.clear();
     setRoomCode(null);
     setGameStarted(false);
     setWinner(null);
     setMyHand([]);
+    setPileTransfer(null);
     setCurrentSeriesRank(null);
     setWaitingForRankPick(false);
     setGameAbandoned(null);
@@ -451,7 +475,7 @@ export const useBluffSocket = () => {
     winner,
     message,
     muted,
-    myId: myIdRef.current ?? socketRef.current?.id ?? null,
+    myId,
     currentSeriesRank,
     waitingForRankPick,
     rankPickStarterId,
