@@ -270,13 +270,13 @@ function PlayerSlot({
           className="flex items-center justify-center rounded-full"
           style={{
             width: 50, height: 50,
-            background: `linear-gradient(135deg, ${ringClr}40, ${ringClr}18)`,
-            border: `3px solid ${ringClr}`,
+            background: '#0d1130',
+            border: `2.5px solid ${ringClr}`,
             boxShadow: isActive
-              ? `0 0 0 3px rgba(0,0,0,0.5), 0 0 20px ${glowClr}`
+              ? `0 0 0 2px rgba(255,255,255,0.08), 0 0 18px ${glowClr}`
               : isMe
-              ? `0 0 0 3px rgba(0,0,0,0.5), 0 0 12px ${glowClr}`
-              : '0 0 0 2px rgba(0,0,0,0.4)',
+              ? `0 0 0 2px rgba(255,255,255,0.06), 0 0 10px ${glowClr}`
+              : '0 0 0 1px rgba(255,255,255,0.06)',
             overflow: 'hidden',
           }}
           animate={isActive
@@ -332,11 +332,11 @@ function PlayerSlot({
         </AnimatePresence>
       </div>
 
-      <div className="text-center leading-none">
-        <div className={`font-black text-[10px] ${isActive ? 'text-yellow-300' : isMe ? 'text-emerald-300' : 'text-white/80'}`}>
-          {player.name.length > 9 ? player.name.slice(0, 8) + '…' : player.name}
+      <div className="text-center leading-tight">
+        <div className={`font-black text-[11px] ${isActive ? 'text-yellow-300' : isMe ? 'text-emerald-300' : 'text-white/80'}`}>
+          {player.name.length > 8 ? player.name.slice(0, 8) + '…' : player.name}
         </div>
-        <div className="text-[9px] text-slate-500 font-semibold mt-0.5">{player.handSize}🃏</div>
+        <div className="text-[9px] text-slate-500 font-semibold mt-1">{player.handSize} cards</div>
       </div>
 
       {!isMe && player.handSize > 0 && <FaceDownStack count={player.handSize} />}
@@ -362,9 +362,9 @@ function CenterPile({
   return (
     <div className="flex flex-col items-center gap-2">
       {currentSeriesRank && !waitingForRankPick && (
-        <div className="px-3 py-1 rounded-full text-[10px] font-black text-emerald-300 border border-emerald-600/50"
-          style={{ background: 'rgba(16,185,129,0.12)' }}>
-          Rank: {rnkLabel(currentSeriesRank)}
+        <div className="px-3 py-1 rounded-full text-[10px] font-black text-emerald-300 border border-emerald-600/40"
+          style={{ background: 'rgba(15,23,42,0.92)' }}>
+          Current rank: {rnkLabel(currentSeriesRank)}
         </div>
       )}
       {waitingForRankPick && (
@@ -401,9 +401,9 @@ function CenterPile({
               }} />
             ))}
             <div className="absolute inset-0 flex flex-col items-center justify-center z-20"
-              style={{ background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(2px)', borderRadius: 8 }}>
+              style={{ background: '#0f172a', borderRadius: 8 }}>
               <span className="text-white font-black text-base leading-none">{pileSize}</span>
-              <span className="text-white/50 text-[8px] font-bold">cards</span>
+              <span className="text-slate-400 text-[8px] font-semibold">cards</span>
             </div>
           </div>
         ) : (
@@ -1269,19 +1269,13 @@ export default function BluffTableView({
           {/* Table surface */}
           <div className="absolute inset-0" style={{
             borderRadius: 80,
-            background: 'radial-gradient(ellipse at 50% 40%, #24214e 0%, #181530 55%, #100d24 100%)',
-            border: '5px solid #9040e8',
+            background: 'radial-gradient(ellipse at 50% 40%, #201d44 0%, #111029 55%, #090813 100%)',
+            border: '4px solid rgba(144,64,232,0.72)',
             boxShadow:
-              '0 0 0 2px rgba(140,60,240,0.3), ' +
-              '0 0 50px rgba(155,68,250,0.85), ' +
-              '0 0 100px rgba(130,50,225,0.45), ' +
-              'inset 0 0 90px rgba(0,0,0,0.62)',
-          }} />
-          <div className="absolute inset-0 overflow-hidden" style={{
-            borderRadius: 80,
-            backgroundImage: 'radial-gradient(rgba(255,255,255,0.45) 1px, transparent 1px)',
-            backgroundSize: '22px 22px',
-            opacity: 0.1,
+              '0 0 0 1px rgba(255,255,255,0.05), ' +
+              '0 0 28px rgba(144,64,232,0.35), ' +
+              '0 0 54px rgba(82,36,173,0.24), ' +
+              'inset 0 0 30px rgba(0,0,0,0.48)',
           }} />
           <div className="absolute inset-0 pointer-events-none" style={{
             borderRadius: 80,
